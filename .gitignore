@@ -12,3 +12,4 @@ node_modules/
 *.m4a
 work/
 out/
+.pytest_cache/

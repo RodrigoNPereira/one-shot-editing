@@ -1,0 +1,19 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: toolkit (no whisper model needed - tests use synthetic transcripts)
+        run: |
+          uv venv --python 3.12 "$HOME/.one-shot-editing/venv"
+          uv pip install --python "$HOME/.one-shot-editing/venv/bin/python" \
+            rapidfuzz scenedetect "opencv-python<5" "opencv-python-headless<5" numpy librosa soundfile yt-dlp pytest
+      - name: shell syntax
+        run: for f in install.sh skills/one-shot-editing/scripts/*.sh skills/one-shot-editing/bin/ose; do bash -n "$f"; done
+      - name: pytest
+        run: ~/.one-shot-editing/venv/bin/python -m pytest -q tests

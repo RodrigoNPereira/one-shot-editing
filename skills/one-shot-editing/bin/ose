@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# one-shot-editing CLI wrapper: runs the toolkit inside its own venv.
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+SKILL_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
+OSE_HOME="${OSE_HOME:-$HOME/.one-shot-editing}"
+VENV="${OSE_VENV:-$OSE_HOME/venv}"
+PY="$VENV/bin/python"
+if [[ ! -x "$PY" ]]; then
+  echo "[ose] environment missing; running setup..." >&2
+  "$SKILL_DIR/scripts/setup.sh" >&2
+fi
+export PATH="$VENV/bin:$PATH"
+export PYTHONPATH="$SKILL_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PY" -m ose "$@"
