@@ -1,3 +1,5 @@
+<img src="assets/logo.svg" width="96" height="96" alt="One-Shot Editing: a paper target with a play button">
+
 # one-shot-editing
 
 An open-source **plugin marketplace** for Claude Code, GitHub Copilot, and Codex, shipping the
@@ -150,6 +152,14 @@ All three catalogs publish `one-shot-editing` from the repository root, sharing 
 The version helper keeps both manifests and the Claude/Copilot catalog entries in sync when releasing.
 
 ## Development
+Lint all Python code with the same pinned Ruff version used in CI:
+```bash
+uvx --from ruff==0.14.2 ruff check .
+uvx --from ruff==0.14.2 ruff check . --fix   # apply safe automatic fixes
+```
+Rules and Python compatibility are configured in [ruff.toml](ruff.toml). Ruff runs as an independent
+CI job on pushes and pull requests. Formatting is not enforced.
+
 ```bash
 ~/.one-shot-editing/venv/bin/python -m pip install pytest   # or: uv pip install --python ~/.one-shot-editing/venv/bin/python pytest
 ~/.one-shot-editing/venv/bin/python -m pytest -q tests

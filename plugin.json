@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "one-shot-editing",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Turn raw talking-head footage into captioned vertical shorts with music, B-roll, and quality checks.",
   "author": {
     "name": "one-shot-editing contributors"
@@ -19,6 +19,8 @@
     "com.openai": {
       "interface": {
         "displayName": "One-Shot Editing",
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/logo.png",
         "shortDescription": "Edit talking-head footage into vertical shorts.",
         "longDescription": "Select a hook, cut pauses and retakes, reframe, add captions, music and B-roll, and check the final video. Supports English and Brazilian Portuguese.",
         "developerName": "one-shot-editing contributors",

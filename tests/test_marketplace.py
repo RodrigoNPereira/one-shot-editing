@@ -54,6 +54,9 @@ def test_client_metadata_stays_in_sync():
     for field in ("name", "version", "description", "author", "license", "keywords"):
         assert portable[field] == claude[field]
     assert json.loads((ROOT / CATALOGS[0]).read_text()) == json.loads((ROOT / CATALOGS[1]).read_text())
+    interface = portable["extensions"]["com.openai"]["interface"]
+    for field in ("logo", "composerIcon"):
+        assert (ROOT / interface[field]).is_file()
 
 
 @pytest.fixture

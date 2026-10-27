@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" role="img" aria-labelledby="target-play-title target-play-desc">
+  <title id="target-play-title">One-Shot Editing</title>
+  <desc id="target-play-desc">A coral paper target with a folded white play button at its center.</desc>
+  <circle cx="12.3" cy="12.6" r="9.1" fill="#202326" opacity="0.12"/>
+  <circle cx="12" cy="12.1" r="9.1" fill="#C74638"/>
+  <circle cx="12" cy="11.5" r="9.1" fill="#EF5B4B"/>
+  <circle cx="12" cy="11.5" r="6.8" fill="#FFFCF8"/>
+  <circle cx="12" cy="11.5" r="4.8" fill="#EF5B4B"/>
+  <path d="M10 8.4 16.3 11.9 10 15.4Z" fill="#C74638"/>
+  <path d="M10 8 16.3 11.5 10 15Z" fill="#FFFCF8"/>
+  <path d="M10 15 11.9 11.5 16.3 11.5Z" fill="#EAD8CE"/>
+</svg>

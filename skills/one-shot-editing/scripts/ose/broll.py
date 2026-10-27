@@ -132,7 +132,7 @@ def label(iid, *, category, labels=(), description="", sort=True) -> dict:
     items = load_index()
     it = find(items, iid)
     cat = slug(category, 32)
-    it.update(category=cat, labels=sorted({l.strip().lower() for l in labels if l.strip()}),
+    it.update(category=cat, labels=sorted({label_text.strip().lower() for label_text in labels if label_text.strip()}),
               description=description, status="labeled")
     if sort:
         dest_dir = BROLL_DIR / cat
