@@ -1,7 +1,7 @@
 # one-shot-editing
 
 <p align="center">
-  <img src="assets/logo.svg" width="192" height="192" alt="One-Shot Editing: a paper target with a play button">
+  <img src="assets/logo.svg" width="386" height="386" alt="One-Shot Editing: a paper target with a play button">
 </p>
 
 An open-source **plugin marketplace** for Claude Code, GitHub Copilot, and Codex, shipping the
