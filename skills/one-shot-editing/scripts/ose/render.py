@@ -139,6 +139,10 @@ def run_render(project: Project, *, draft=False, captions=True, out=None, platfo
     project.require()
     if not project.cut.exists():
         raise OseError("no cut yet: run `ose cut` first")
+    if not draft and project.meta.get("cut_draft", False):
+        from .cut import render_cut
+        log("rebuilding draft rough cut at full quality before final render")
+        render_cut(project, reframe=project.meta.get("cut_reframe", "face"), draft=False)
     plan = load_plan(project)
     platform = platform or plan.get("platform", "tiktok")
     if captions and project.cut_words.exists():

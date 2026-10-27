@@ -1,6 +1,7 @@
 """Word-level transcription (faster-whisper by default, WhisperX when installed and requested)."""
 from __future__ import annotations
 
+import math
 import time
 
 from .common import OseError, Project, ffmpeg, log, write_json
@@ -65,11 +66,20 @@ def transcribe_whisperx(audio, language, model_name, keep_fillers):
     aligned = whisperx.align(result["segments"], align_model, meta, aud, device, return_char_alignments=False)
     words, segs = [], []
     for s in aligned["segments"]:
+        if s["text"].strip() and not s.get("words"):
+            raise OseError(f"WhisperX could not align segment {s['text']!r}; retry with --engine faster-whisper")
         segs.append({"start": round(s["start"], 3), "end": round(s["end"], 3), "text": s["text"].strip()})
         for w in s.get("words", []):
-            if "start" in w and w.get("word", "").strip():
-                words.append({"word": w["word"].strip(), "start": round(w["start"], 3),
-                              "end": round(w["end"], 3), "prob": round(w.get("score", 1.0), 3)})
+            text = w.get("word", "").strip()
+            if not text:
+                continue
+            start, end = w.get("start"), w.get("end")
+            if (start is None or end is None or not math.isfinite(start) or not math.isfinite(end)
+                    or not 0 <= start < end):
+                raise OseError(f"WhisperX could not align word {text!r}; retry transcription with --engine faster-whisper "
+                               "or correct the transcript. No words were silently dropped.")
+            words.append({"word": text, "start": round(start, 3), "end": round(end, 3),
+                          "prob": round(w.get("score") or 0.0, 3)})
     return words, segs, lang, None
 
 

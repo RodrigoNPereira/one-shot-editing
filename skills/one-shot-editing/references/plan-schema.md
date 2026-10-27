@@ -46,15 +46,32 @@ ose pacing proj --reset --apply                           # remove auto zooms an
 ## Other project files
 ```
 proj/
+  project.json      source info, language, platform, rough-cut quality and framing mode
   raw/              source video (symlink, or a copy with --copy)
   work/
-    meta.json       source info, detected language, platform
     audio16k.wav    transcription audio
     transcript.json words with start/end/probability (source timeline)
-    edl.json        segments to keep + every cut decision (ids for --keep)
+    edl.json        segments, cut decisions (ids for --keep), review candidates, transcript fingerprint
     cut.mp4         the rough cut, 1080x1920 (no captions/music)
     cut_words.json  words remapped to the cut timeline (feeds captions and HyperFrames)
     plan.json       this file
     captions.ass/.srt/.json
   out/ final.mp4 · draft.mp4 · cover.jpg · contact_sheet.jpg · qa.json
 ```
+
+## Reruns and review
+
+`edl.json` is the source of cut decisions, not `plan.json`. Its `review` array records similar take pairs
+whose quantities or negation differ. Both alternatives remain in the cut unless you make an explicit edit.
+`stats.review_required` counts those candidates; `roughcut --report` displays them and QA warns about them.
+The list is advisory, not a durable approval ledger; record the review rationale with the project.
+
+`transcript_sha256` identifies the transcript used to build a new EDL. With `transcript_fingerprint_version: 1`,
+it hashes language, ordered words, timestamps and confidence, ignoring formatting, elapsed time and unrelated
+metadata. The earlier raw-file fingerprint format remains readable. A changed transcript causes `auto`
+and `cut` to stop until you deliberately rebuild/review the EDL. Old EDLs without this field remain readable.
+This does not detect changes to source-video bytes: retranscribe and rebuild after changing the recording.
+
+`auto` preserves an existing EDL. `auto --rebuild-edl` replaces it. After any timeline change, recheck every
+plan timestamp; placements are not automatically remapped. `render --draft` previews the existing cut without
+changing its editorial decisions. Final rendering promotes a recorded draft-quality cut before encoding.

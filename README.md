@@ -1,6 +1,7 @@
 # one-shot-editing
 
-An open-source **agent skill** (Claude Code, GitHub Copilot CLI, Codex, and any agent that reads `SKILL.md`) that
+An open-source **plugin marketplace** for Claude Code, GitHub Copilot, and Codex, shipping the
+**one-shot-editing** skill. It also works with any agent that reads `SKILL.md`. The skill
 turns raw talking-head footage into a finished, retention-optimised **vertical short** for TikTok, Reels or
 Shorts. It works in one pass, and you approve the creative calls.
 
@@ -32,13 +33,57 @@ project turns that workflow into a reusable, open toolkit.
 Requirements: **ffmpeg with libass**, and either [uv](https://docs.astral.sh/uv/) or Python 3.10–3.12. Node is
 optional (web capture). adb and Xcode are optional (app capture).
 
+The toolkit uses Bash and Unix tools: use Linux, macOS, or WSL on Windows. Installing the plugin does not
+install system dependencies or add `ose` to your shell's `PATH`.
+
+### Marketplace installation
+
+Run these commands from this checkout. Choose one client:
+
+**Claude Code**
 ```bash
-git clone https://github.com/<you>/one-shot-editing && cd one-shot-editing
+claude plugin marketplace add "$PWD"
+claude plugin install one-shot-editing@one-shot-editing-marketplace
+```
+
+**GitHub Copilot CLI**
+```bash
+copilot plugin marketplace add "$PWD"
+copilot plugin install one-shot-editing@one-shot-editing-marketplace
+```
+
+**Codex CLI**
+```bash
+codex plugin marketplace add "$PWD"
+codex plugin add one-shot-editing@one-shot-editing-marketplace
+```
+On clients without `codex plugin add`, install from the plugin browser after registering the marketplace.
+
+**VS Code Copilot**: open the Extensions view, search `@agentPlugins`, and use **Manage Plugin
+Marketplaces** to add this repository's Git URL once published. You can also add its `OWNER/REPO` to
+the `chat.plugins.marketplaces` setting. This requires a VS Code version with Agent Plugins support.
+
+After publishing to GitHub, replace `"$PWD"` in the marketplace-add commands with the actual `OWNER/REPO`.
+There is no configured remote in this checkout, so no hosted repository address is assumed here.
+Restart your agent session after installation. Ask it to use `one-shot-editing`; in Claude Code, the
+explicit command is `/one-shot-editing:one-shot-editing`.
+
+The plugin bundles the CLI at `skills/one-shot-editing/bin/ose` relative to its installed root. Agents
+should resolve that path from the loaded skill location, not assume a global skills directory. The first
+CLI run sets up the Python toolkit. To expose `ose` in your terminal too, use the standalone installer below.
+Choose either plugin installation or standalone skill installation for an agent to avoid duplicate skills.
+
+### Standalone skill installation
+
+From this checkout:
+```bash
 ./install.sh            # links the skill into ~/.agents/skills (+ ~/.claude/.copilot/.codex skill dirs), puts `ose` on PATH
 ./install.sh --full     # + WhisperX (tighter word timing) and Demucs (voice isolation); large torch download
 ```
-Or with the [skills CLI](https://skills.sh): `npx skills add <you>/one-shot-editing -g`. The Python toolkit then
-installs itself on the first `ose` run.
+For other compatible agents, use the [skills CLI](https://skills.sh): `npx skills add . -g` from this
+checkout, or `npx skills add OWNER/REPO -g` after publishing. Select the target agents when prompted.
+With skill-only installation, invoke `bin/ose` from the installed skill directory; the Python toolkit
+installs itself on first run.
 
 The first transcription downloads a Whisper model (~0.5 GB). Libraries live in `~/.one-shot-editing/`
 (`OSE_HOME`).
@@ -60,12 +105,35 @@ ose broll ingest && ose broll pending # label with: ose broll label <id> --categ
 ose plan proj --add-broll '{"asset":"<id>","start":4.2,"duration":2}'
 ose pacing proj --apply
 ose render proj && ose qa proj && ose cover proj --at 3 --text "TITLE"
-ose auto proj                         # everything above with defaults
+ose auto proj                         # reuse transcript/reviewed EDL, then cut, pacing, render and QA
+ose auto proj --rebuild-edl            # deliberately replace cuts; recheck timed plan items afterward
 ```
 Full command list: `ose -h` and `ose <command> -h`.
 
+## Editing safeguards
+
+Review the rough-cut report before decorating the timeline. Similar takes with changed numbers or negation
+remain for review; the detector does not prove semantic equivalence. Portuguese `um` is not treated as an
+English filler. Invalid timestamps/ranges and unaligned WhisperX words stop processing instead of silently
+discarding speech. Cold-open captions follow output order, and fast caption chunks do not overlap.
+
+`auto` preserves existing EDLs and caption choices. New EDLs fingerprint their transcript, and final renders
+promote draft-quality cuts automatically. Changing the source recording still requires retranscription;
+changing the cut requires rechecking timed placements. `qa` and `auto` return status 1 on QA errors.
+
+Music/B-roll imports use content deduplication and isolated storage so same-named files do not overwrite
+earlier assets. Failed B-roll imports preserve their source and previously indexed successes.
+
+See the [engineering comparison and remaining limits](skills/one-shot-editing/references/oss-resources.md)
+for the Auto-Editor, stable-ts, WhisperX and ClipsAI ideas used in this pass. The pipeline has regression and
+synthetic-media tests, not evidence that it has the best retention or editing quality across all projects.
+
 ## Layout
 ```
+plugin.json                portable Agent Plugins manifest (Codex and compatible hosts)
+.claude-plugin/            Claude plugin manifest and marketplace catalog
+.github/plugin/            Copilot marketplace catalog
+.agents/plugins/           Codex marketplace catalog
 skills/one-shot-editing/
   SKILL.md                 orchestrator the agent follows
   bin/ose                  CLI wrapper (own Python 3.12 venv)
@@ -78,11 +146,44 @@ skills/one-shot-editing/
 tests/                     pytest suite (synthetic media, no model download)
 ```
 
+All three catalogs publish `one-shot-editing` from the repository root, sharing one skill and toolkit.
+The version helper keeps both manifests and the Claude/Copilot catalog entries in sync when releasing.
+
 ## Development
 ```bash
 ~/.one-shot-editing/venv/bin/python -m pip install pytest   # or: uv pip install --python ~/.one-shot-editing/venv/bin/python pytest
 ~/.one-shot-editing/venv/bin/python -m pytest -q tests
 ```
+
+Packaging-only checks (no model downloads or media processing):
+```bash
+python3 -m pytest -q tests/test_marketplace.py
+claude plugin validate .   # optional native validation when Claude Code is installed
+```
+
+### Versioning
+
+Pull requests targeting `main` run **PR Validation / Plugin versions**, following the marketplace's
+explicit version-bump workflow. Changes to the skill, installer, license, manifests, or catalogs require
+an increased plugin version and increased Claude/Copilot marketplace metadata versions. Documentation
+outside the skill, tests, and CI-only changes do not require a bump. Initial marketplace publication is
+allowed when the base commit has no manifests yet.
+
+Before submitting a release change:
+```bash
+python3 scripts/plugin_versions.py bump --level patch
+git fetch origin main
+python3 scripts/plugin_versions.py check --base-ref origin/main
+```
+
+Use `patch` for compatible fixes, `minor` for added functionality, and `major` for breaking changes.
+The helper increments both marketplace metadata versions by one patch and updates both plugin manifests
+and catalog plugin versions together. Codex's catalog has no version field; it uses the portable manifest.
+Checks include committed, staged, unstaged, and untracked release files relative to the merge base.
+
+Commit the version changes with the implementation. CI validates only: it does not push commits, tag
+releases, or approve PRs. A repository administrator must make **Plugin versions** a required status
+check in the `main` branch rules to enforce it before merging.
 
 ## Credits and licences
 MIT (see [LICENSE](LICENSE)). Built on FFmpeg, faster-whisper, WhisperX, rapidfuzz, yt-dlp, librosa,

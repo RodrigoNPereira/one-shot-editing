@@ -6,19 +6,23 @@ from pathlib import Path
 
 from . import music as music_lib
 from .captions import STYLES
-from .common import FPS, H, W, Project, load_plan, ffmpeg, probe, read_json, run, write_json
+from .common import FPS, H, W, OseError, Project, load_plan, ffmpeg, probe, read_json, run, write_json
 from .pacing import analyse as pacing_analyse
 from .render import PLATFORMS
 
 
 def measure(path) -> dict:
-    res = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
+    res = run(["ffmpeg", "-hide_banner", "-nostats", "-xerror", "-i", str(path),
                "-vf", "blackdetect=d=0.4:pix_th=0.08", "-af", "ebur128=peak=true,silencedetect=n=-45dB:d=1.2",
                "-f", "null", "-"], capture=True, check=False)
     err = res.stderr or ""
+    if res.returncode:
+        raise OseError(f"QA measurement failed ({res.returncode}): {err[-1500:]}")
     summary = err[err.rfind("Summary:"):] if "Summary:" in err else ""
     lufs = re.search(r"I:\s+(-?[\d.]+) LUFS", summary)
     peak = re.search(r"Peak:\s+(-?[\d.]+|-inf) dBFS", summary)
+    if not lufs or not peak:
+        raise OseError("QA measurement incomplete: no usable loudness/true-peak summary")
     blacks = [(float(a), float(b)) for a, b in re.findall(r"black_start:([\d.]+) black_end:([\d.]+)", err)]
     silences = re.findall(r"silence_start: ([\d.]+)", err)
     return {"lufs": float(lufs.group(1)) if lufs else None,
@@ -42,38 +46,52 @@ def run_qa(project: Project, *, target=None) -> dict:
     platform = plan.get("platform", "tiktok")
     pf = PLATFORMS.get(platform, PLATFORMS["tiktok"])
     info = probe(path)
-    m = measure(path)
     checks = []
 
     def check(name, ok, detail, level="error"):
         checks.append({"check": name, "status": "pass" if ok else level, "detail": detail})
+
+    try:
+        m = measure(path)
+    except OseError as error:
+        m = None
+        check("measurements", False, str(error))
 
     check("resolution", (info.get("width"), info.get("height")) == (W, H), f"{info.get('width')}x{info.get('height')}")
     check("fps", abs(info.get("fps", 0) - FPS) < 0.5, f"{info.get('fps', 0):.2f}")
     check("audio", info["audio"], "audio stream present" if info["audio"] else "no audio")
     check("duration", info["duration"] <= pf["max_s"], f"{info['duration']:.1f}s (max {pf['max_s']}s on {platform})")
     check("duration_sweet_spot", 12 <= info["duration"] <= 75, f"{info['duration']:.1f}s (shorts retain best ~15-60s)", "warn")
-    if m["lufs"] is not None:
-        check("loudness", abs(m["lufs"] - pf["lufs"]) <= 1.5, f"{m['lufs']} LUFS (target {pf['lufs']})", "warn")
-    if m["true_peak_db"] is not None:
-        check("true_peak", m["true_peak_db"] <= -0.5, f"{m['true_peak_db']} dBFS", "warn")
-    check("black_frames", not m["black_segments"], f"{m['black_segments']}" if m["black_segments"] else "none")
-    check("dead_air", not m["long_silences_at"], f"silences >1.2s at {m['long_silences_at']}" if m["long_silences_at"] else "none", "warn")
+    if m is not None:
+        check("loudness", m["lufs"] is not None and abs(m["lufs"] - pf["lufs"]) <= 1.5,
+              f"{m['lufs']} LUFS (target {pf['lufs']})", "warn")
+        check("true_peak", m["true_peak_db"] is not None and m["true_peak_db"] <= -0.5,
+              f"{m['true_peak_db']} dBFS", "warn")
+        check("black_frames", not m["black_segments"], f"{m['black_segments']}" if m["black_segments"] else "none")
+        check("dead_air", not m["long_silences_at"],
+              f"silences >1.2s at {m['long_silences_at']}" if m["long_silences_at"] else "none", "warn")
 
     # editorial
     try:
         words = read_json(project.cut_words)["words"]
-        first = words[0]["start"] if words else 0
+        if not words:
+            raise OseError("cut transcript has no words")
+        first = words[0]["start"]
         check("hook_starts_fast", first <= 0.4, f"first word at {first:.2f}s (should be <0.4s)", "warn")
-    except Exception:  # noqa: BLE001
-        pass
+    except (OseError, ValueError, KeyError, TypeError) as error:
+        check("hook_starts_fast", False, f"Cannot check cut transcript: {error}")
     try:
-        segs = read_json(project.edl)["segments"]
+        edl = read_json(project.edl)
+        segs = edl["segments"]
+        if not segs:
+            raise OseError("EDL has no segments")
         pace = pacing_analyse(plan, segs, info["duration"])
         check("pacing", pace["ok"], f"max static {pace['max_static']}s, {pace['changes_per_10s']} changes/10s; gaps: "
               f"{[(g['start'], g['end']) for g in pace['gaps']]}", "warn")
-    except Exception:  # noqa: BLE001
-        pass
+        pending = edl.get("review", [])
+        check("retake_review", not pending, f"{len(pending)} potentially meaning-changing take pairs preserved; review edl.json", "warn")
+    except (OseError, ValueError, KeyError, TypeError) as error:
+        check("pacing", False, f"Cannot check EDL: {error}")
     caps = read_json(project.work / "captions.json", [])
     if caps:
         long_ = [c["text"] for c in caps if len(c["text"]) > 24]
@@ -94,7 +112,7 @@ def run_qa(project: Project, *, target=None) -> dict:
         except Exception:  # noqa: BLE001
             lic = "unknown"
         if lic == "cc-by":
-            check("music_license", True, "license=cc-by: credit the artist in the post caption", "warn")
+            check("music_license", False, "license=cc-by: credit the artist in the post caption", "warn")
         else:
             check("music_license", lic in ("royalty-free", "owned"),
                   f"license={lic}" + ("" if lic in ("royalty-free", "owned") else

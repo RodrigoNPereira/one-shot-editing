@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 from .common import BROLL_DIR, OseError, ffmpeg, log, media_kind, probe, read_json, slug, strip_accents, write_json
@@ -24,8 +25,11 @@ def save_index(items) -> None:
 
 
 def _id(path: Path) -> str:
-    st = path.stat()
-    return "b" + hashlib.sha1(f"{path.name}:{st.st_size}".encode()).hexdigest()[:7]
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "b" + digest.hexdigest()
 
 
 def detect_scenes(path, threshold=27.0, max_scenes=200):
@@ -39,12 +43,13 @@ def detect_scenes(path, threshold=27.0, max_scenes=200):
     return out
 
 
-def make_thumbs(item: dict, n_max=6) -> list[str]:
-    THUMBS.mkdir(parents=True, exist_ok=True)
+def make_thumbs(item: dict, n_max=6, *, directory=None) -> list[str]:
+    directory = THUMBS if directory is None else Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
     path = item["path"]
     thumbs = []
     if item["kind"] == "image":
-        t = THUMBS / f"{item['id']}_0.jpg"
+        t = directory / f"{item['id']}_0.jpg"
         ffmpeg(["-i", path, "-vf", "scale=480:-2", "-frames:v", "1", t])
         return [str(t)]
     scenes = item["scenes"] or [[0, item["duration"]]]
@@ -52,7 +57,7 @@ def make_thumbs(item: dict, n_max=6) -> list[str]:
         step = len(scenes) / n_max
         scenes = [scenes[int(k * step)] for k in range(n_max)]
     for k, (a, b) in enumerate(scenes):
-        t = THUMBS / f"{item['id']}_{k}.jpg"
+        t = directory / f"{item['id']}_{k}.jpg"
         ffmpeg(["-ss", f"{(a + b) / 2:.2f}", "-i", path, "-vf", "scale=480:-2", "-frames:v", "1", t])
         thumbs.append(str(t))
     return thumbs
@@ -73,33 +78,41 @@ def ingest(paths=None, *, source="user", project=None, copy=False) -> list[dict]
         else:
             raise OseError(f"not found: {p}")
     items = load_index()
-    known = {i["id"] for i in items}
+    known = {_id(Path(item["path"])) for item in items if Path(item["path"]).is_file()}
     added = []
     for f in targets:
         iid = _id(f)
         if iid in known:
             log(f"skip (already ingested): {f.name}")
             continue
-        dest = UNSORTED / f"{iid}_{slug(f.stem, 40)}{f.suffix.lower()}"
-        if from_inbox and not copy:
-            shutil.move(str(f), dest)
-        else:
+        if any(item["id"] == iid for item in items):
+            raise OseError(f"b-roll id collision: {iid}")
+        import_dir = Path(tempfile.mkdtemp(prefix="import-", dir=UNSORTED))
+        dest = import_dir / f"{iid}_{slug(f.stem, 40)}{f.suffix.lower()}"
+        try:
             shutil.copy2(f, dest)
-        kind = media_kind(dest)
-        info = probe(dest)
-        item = {"id": iid, "path": str(dest), "original_name": f.name, "kind": kind,
-                "duration": round(info["duration"], 2) if kind == "video" else None,
-                "width": info.get("width"), "height": info.get("height"), "has_audio": info.get("audio", False),
-                "scenes": detect_scenes(dest) if kind == "video" else [],
-                "source": source, "project": project, "status": "unlabeled",
-                "category": None, "labels": [], "description": "", "uses": 0,
-                "added": dt.date.today().isoformat()}
-        item["thumbs"] = make_thumbs(item)
+            if _id(dest) != iid:
+                raise OseError(f"source changed during import: {f}")
+            kind = media_kind(dest)
+            info = probe(dest)
+            item = {"id": iid, "path": str(dest), "original_name": f.name, "kind": kind,
+                    "duration": round(info["duration"], 2) if kind == "video" else None,
+                    "width": info.get("width"), "height": info.get("height"), "has_audio": info.get("audio", False),
+                    "scenes": detect_scenes(dest) if kind == "video" else [],
+                    "source": source, "project": project, "status": "unlabeled",
+                    "category": None, "labels": [], "description": "", "uses": 0,
+                    "added": dt.date.today().isoformat()}
+            item["thumbs"] = make_thumbs(item, directory=import_dir / ".thumbs")
+            save_index(items + [item])
+        except Exception:
+            shutil.rmtree(import_dir, ignore_errors=True)
+            raise
         items.append(item)
         known.add(iid)
         added.append(item)
+        if from_inbox and not copy:
+            f.unlink()
         log(f"ingested {f.name} -> {iid} ({kind}, {len(item['scenes'])} scenes)")
-    save_index(items)
     return added
 
 

@@ -38,10 +38,10 @@ def chunk_words(words, max_words=3, max_chars=18, gap_break=0.35, linger=0.5):
     out = []
     for i, c in enumerate(chunks):
         start = c[0]["start"]
-        end = c[-1]["end"] + linger
+        end = max(c[-1]["end"] + linger, start + 0.2)
         if i + 1 < len(chunks):
             end = min(end, chunks[i + 1][0]["start"])
-        out.append({"start": round(start, 3), "end": round(max(end, start + 0.2), 3), "words": c})
+        out.append({"start": round(start, 3), "end": round(end, 3), "words": c})
     return out
 
 
@@ -122,7 +122,10 @@ def card_events(plan, duration):
 
 
 def build_ass(words, plan, duration, style="bold-pop", max_words=3, show_captions=True):
+    words = [word for word in words if word["start"] < duration]
     chunks = chunk_words(words, max_words=max_words) if show_captions else []
+    for chunk in chunks:
+        chunk["end"] = min(chunk["end"], duration)
     ev = caption_events(chunks, style) + card_events(plan, duration)
     lines = [_header(style)]
     for a, b, st, text in sorted(ev, key=lambda e: e[0]):

@@ -7,7 +7,9 @@ truth for every later step. All decisions are listed with ids so they can be rev
 """
 from __future__ import annotations
 
-from .common import Project, cut_duration, fmt_time, log, norm_token, probe, read_json, write_json
+import math
+
+from .common import OseError, Project, cut_duration, fmt_time, log, norm_token, probe, read_json, strip_accents, transcript_fingerprint, write_json
 
 FILLERS = {
     "en": {"um", "umm", "ummm", "uh", "uhh", "uhm", "erm", "er", "ah", "ahh", "hmm", "hm", "mm", "mmm", "mhm"},
@@ -21,6 +23,13 @@ SOFT_FILLERS = {
     "es": {("o", "sea"), "pues", "bueno", ("es", "que")},
 }
 SENTENCE_END = (".", "?", "!", "…")
+MEANING_WORDS = set((
+    "no not never neither nor without cannot cant wont dont isnt arent wasnt werent wouldnt shouldnt couldnt "
+    "nao nunca jamais nem sem tampoco ni sin "
+    "zero one two three four five six seven eight nine ten eleven twelve hundred thousand million billion "
+    "um uma dois duas tres quatro cinco seis sete oito nove dez cem mil milhao "
+    "uno una dos cuatro siete ocho nueve diez cien"
+).split())
 
 PACE = {
     # max_gap: pauses longer than this are cut; pads: silence kept before/after speech at each cut.
@@ -46,23 +55,66 @@ def _phrase_score(words, idx, removed):
     return sum(probs) / len(probs) - 0.08 * fill + (0.05 if complete else 0)
 
 
+def _meaning_tokens(words, indices):
+    tokens = []
+    for index in indices:
+        raw = words[index]["word"].lower().replace("’", "'")
+        token = strip_accents(norm_token(raw))
+        if any(character.isdigit() for character in raw):
+            tokens.append(raw.strip(".,;:!? "))
+        elif token in MEANING_WORDS or token.endswith("n't"):
+            tokens.append(token)
+    return tokens
+
+
 def parse_ranges(spec: str | None) -> list[tuple[float, float]]:
     out = []
+    if not spec:
+        return out
     for part in (spec or "").split(","):
-        if "-" in part:
-            a, b = part.split("-", 1)
-            out.append((float(a), float(b)))
+        try:
+            start, end = (float(value) for value in part.split("-", 1))
+        except ValueError as error:
+            raise OseError(f"invalid time range {part!r}; use START-END in seconds") from error
+        _validate_range(start, end)
+        out.append((start, end))
     return out
+
+
+def _validate_range(start, end, duration=None):
+    if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end):
+        raise OseError(f"invalid time range: {start}-{end}")
+    if duration is not None and end > duration:
+        raise OseError(f"time range {start}-{end} exceeds source duration {duration}")
 
 
 def build_edl(words: list[dict], *, language="en", duration=None, pace="tight", aggressive=False,
               prefer="last", keep_ids=(), cut_ranges=(), lookahead=3, max_retake_gap=20.0) -> dict:
+    if not words:
+        raise OseError("transcript has no words; transcribe or correct it before cutting")
+    if duration is not None and (not math.isfinite(duration) or duration <= 0):
+        raise OseError("source duration must be finite and positive")
+    previous_start = 0.0
+    for index, word in enumerate(words):
+        try:
+            start, end = word["start"], word["end"]
+            valid = (math.isfinite(start) and math.isfinite(end) and previous_start <= start < end
+                     and (duration is None or end <= duration + 0.001))
+        except (KeyError, TypeError) as error:
+            raise OseError(f"invalid word timestamp at index {index}") from error
+        if not valid:
+            raise OseError(f"invalid word timestamp at index {index}: {start}-{end}")
+        previous_start = start
+    duration = duration if duration is not None else words[-1]["end"] + 0.5
+    for start, end in cut_ranges:
+        _validate_range(start, end, duration)
     lang = (language or "en")[:2]
     p = PACE[pace]
     n = len(words)
     toks = [norm_token(w["word"]) for w in words]
     removed: dict[int, tuple[str, str]] = {}  # word index -> (reason, decision id)
     decisions: list[dict] = []
+    review: list[dict] = []
     keep_ids = set(keep_ids)
 
     def decide(reason, idxs, detail=""):
@@ -75,9 +127,9 @@ def build_edl(words: list[dict], *, language="en", duration=None, pace="tight", 
                 removed.setdefault(i, (reason, did))
 
     # 1. fillers
-    hard = FILLERS.get(lang, FILLERS["en"]) | FILLERS["en"]
+    hard = FILLERS.get(lang, FILLERS["en"])
     soft = SOFT_FILLERS.get(lang, set()) if aggressive else set()
-    soft_multi = [s for s in soft if isinstance(s, tuple)]
+    soft_multi = sorted((s for s in soft if isinstance(s, tuple)), key=lambda sequence: (-len(sequence), sequence))
     soft_single = {s for s in soft if isinstance(s, str)}
     i = 0
     while i < n:
@@ -100,7 +152,9 @@ def build_edl(words: list[dict], *, language="en", duration=None, pace="tight", 
             continue
         if toks[i] == toks[i + 1] and words[i + 1]["start"] - words[i]["end"] < 0.7:
             decide("stutter", [i])
-        elif i + 3 < n and toks[i:i + 2] == toks[i + 2:i + 4] and all(toks[i:i + 2]):
+            continue
+        repeated_pair = i + 3 < n and toks[i:i + 2] == toks[i + 2:i + 4] and all(toks[i:i + 2])
+        if repeated_pair and words[i + 2]["start"] - words[i + 1]["end"] < 0.7:
             decide("stutter", [i, i + 1])
 
     # 3. phrases over the remaining words (split on pauses and sentence ends)
@@ -138,18 +192,19 @@ def build_edl(words: list[dict], *, language="en", duration=None, pace="tight", 
                       and _ratio(ta, " ".join(tb.split()[:na])) >= 85)
             if not (full or prefix):
                 continue
+            if _meaning_tokens(words, phrases[a]) != _meaning_tokens(words, phrases[b]):
+                review.append({"reason": "meaning-change", "start": words[phrases[a][0]]["start"],
+                               "end": words[phrases[a][-1]]["end"], "text": ta,
+                               "candidate_start": words[phrases[b][0]]["start"], "candidate": tb})
+                continue
             loser = a
             if full and prefer == "best":
                 sa = _phrase_score(words, phrases[a], removed)
                 sb = _phrase_score(words, phrases[b], removed)
                 loser = b if sa > sb + 0.08 else a
-            between = [k for k in range(a + 1, b) if k not in dropped and len(phrases[k]) <= 5]
-            for k in [loser, *between]:
-                dropped.add(k)
+            dropped.add(loser)
             kind = "retake" if full else "false-start"
             decide(kind, phrases[loser], f"kept take at {fmt_time(words[phrases[b if loser == a else a][0]]['start'])}")
-            for k in between:
-                decide("retake-junk", phrases[k], "talk between takes")
             break
 
     # 5. forced cuts
@@ -159,7 +214,6 @@ def build_edl(words: list[dict], *, language="en", duration=None, pace="tight", 
             decide("manual", idx, f"{ca}-{cb}")
 
     # 6. segments: runs of kept words, cut wherever a pause is too long or a word was removed
-    duration = duration or (words[-1]["end"] + 0.5)
     segments = []
     run_start = None
     for i in range(n):
@@ -186,6 +240,7 @@ def build_edl(words: list[dict], *, language="en", duration=None, pace="tight", 
     return {
         "segments": segments,
         "decisions": decisions,
+        "review": review,
         "params": {"pace": pace, **p, "aggressive": aggressive, "prefer": prefer, "language": lang},
         "stats": {
             "source_duration": round(duration, 2),
@@ -193,6 +248,7 @@ def build_edl(words: list[dict], *, language="en", duration=None, pace="tight", 
             "segments": len(segments),
             "removed_speech_s": round(removed_time, 2),
             "by_reason": _count(decisions),
+            "review_required": len(review),
         },
     }
 
@@ -221,17 +277,24 @@ def run_roughcut(project: Project, *, pace="tight", aggressive=False, prefer="la
     project.require()
     tr = read_json(project.transcript)
     duration = probe(project.source)["duration"]
+    hook = parse_ranges(hook_range)
+    if hook_range:
+        if len(hook) != 1:
+            raise OseError("hook range must contain exactly one START-END interval")
+        _validate_range(*hook[0], duration)
     edl = build_edl(tr["words"], language=tr.get("language", "en"), duration=duration, pace=pace,
                     aggressive=aggressive, prefer=prefer,
                     keep_ids=[k.strip() for k in keep.split(",") if k.strip()],
                     cut_ranges=parse_ranges(cut))
-    if hook_range:
-        (ha, hb), = parse_ranges(hook_range)
+    if hook:
+        (ha, hb), = hook
         rest = [x for seg in edl["segments"] for x in _subtract(seg, ha, hb)]  # don't play the line twice
         edl["segments"] = [{"in": ha, "out": hb, "hook": True}, *[x for x in rest if x["out"] - x["in"] > 0.05]]
         edl["stats"]["segments"] = len(edl["segments"])
         edl["stats"]["cut_duration"] = round(cut_duration(edl["segments"]), 2)
     edl["source"] = str(project.source)
+    edl["transcript_sha256"] = transcript_fingerprint(tr)
+    edl["transcript_fingerprint_version"] = 1
     write_json(project.edl, edl)
     s = edl["stats"]
     log(f"rough cut: {s['source_duration']}s -> {s['cut_duration']}s, {s['segments']} segments, removed {s['by_reason']}")
@@ -241,6 +304,9 @@ def run_roughcut(project: Project, *, pace="tight", aggressive=False, prefer="la
 def report(edl: dict) -> str:
     lines = [f"{d['id']:>4} {'KEPT ' if d['kept'] else 'CUT  '}{d['reason']:<12} {fmt_time(d['start'])}  "
              f"{d['text'][:70]!r} {d['detail']}" for d in edl["decisions"]]
+    lines.extend(f"REVIEW {item['reason']} {fmt_time(item['start'])} {item['text']!r} vs "
+                 f"{fmt_time(item['candidate_start'])} {item['candidate']!r} (both preserved)"
+                 for item in edl.get("review", []))
     s = edl["stats"]
     lines.append(f"\n{s['source_duration']}s -> {s['cut_duration']}s ({s['segments']} segments)")
     return "\n".join(lines)

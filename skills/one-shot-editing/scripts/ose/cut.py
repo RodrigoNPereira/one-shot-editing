@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-from .common import FPS, H, W, OseError, Project, ffmpeg, log, probe, read_json, remap_words, write_json
+from .common import FPS, H, W, OseError, Project, ffmpeg, load_edl, log, probe, read_json, remap_words, write_json
 
 
 def quantize_segments(segments, fps=FPS):
@@ -72,7 +72,7 @@ def video_filter(info, mode, center=0.5):
 
 def render_cut(project: Project, *, reframe="face", draft=False, jobs=None) -> dict:
     project.require()
-    edl = read_json(project.edl)
+    edl = load_edl(project)
     src = project.source
     info = probe(src)
     if "width" not in info:
@@ -126,5 +126,6 @@ def render_cut(project: Project, *, reframe="face", draft=False, jobs=None) -> d
     words = remap_words(tr["words"], segs)
     write_json(project.cut_words, {"language": tr.get("language"), "words": words})
     dur = probe(project.cut)["duration"]
+    project.update_meta(cut_draft=bool(draft), cut_reframe=reframe)
     log(f"cut -> {project.cut} ({dur:.2f}s)")
     return {"cut": str(project.cut), "duration": dur, "segments": len(segs), "words": len(words)}

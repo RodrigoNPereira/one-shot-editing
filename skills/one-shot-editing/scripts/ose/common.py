@@ -1,6 +1,7 @@
 """Shared helpers: paths, JSON IO, ffmpeg/ffprobe wrappers, timeline remapping."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -207,7 +208,7 @@ def remap_words(words: list[dict], segments: list[dict]) -> list[dict]:
                 if b > a:
                     out.append({**w, "start": round(a, 3), "end": round(b, 3)})
                 break
-    return out
+    return sorted(out, key=lambda word: (word["start"], word["end"]))
 
 
 def cut_duration(segments: list[dict]) -> float:
@@ -248,3 +249,26 @@ def normalize_plan(plan: dict) -> dict:
 
 def load_plan(project) -> dict:
     return normalize_plan(read_json(project.plan, {}))
+
+
+def transcript_fingerprint(transcript) -> str:
+    content = {
+        "language": (transcript.get("language") or "en")[:2],
+        "words": [{"word": word["word"], "start": float(word["start"]), "end": float(word["end"]),
+                   "prob": float(word.get("prob", 1.0))} for word in transcript["words"]],
+    }
+    payload = json.dumps(content, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def load_edl(project) -> dict:
+    edl = read_json(project.edl)
+    fingerprint = edl.get("transcript_sha256")
+    if fingerprint:
+        if edl.get("transcript_fingerprint_version") == 1:
+            current = transcript_fingerprint(read_json(project.transcript))
+        else:
+            current = hashlib.sha256(project.transcript.read_bytes()).hexdigest()
+        if fingerprint != current:
+            raise OseError("transcript changed since this EDL was built; review it and run `ose roughcut` or `ose auto --rebuild-edl`")
+    return edl

@@ -55,7 +55,8 @@ def test_full_pipeline(tmp_path):
     segs = json.loads((proj / "work" / "edl.json").read_text())["segments"]
     assert segs[0]["hook"] and all(s["out"] <= 7.3 or s["in"] >= 8.5 for s in segs[1:])
     ose("roughcut", proj, env=env)
-    ose("cut", proj, "--reframe", "center", env=env)
+    ose("cut", proj, "--reframe", "center", "--draft", env=env)
+    assert json.loads((proj / "project.json").read_text())["cut_draft"] is True
     cut = proj / "work" / "cut.mp4"
     expected = sum(round((s["out"] - s["in"]) * 30) for s in json.loads((proj / "work" / "edl.json").read_text())["segments"])
     assert frames(cut) == expected
@@ -69,6 +70,7 @@ def test_full_pipeline(tmp_path):
         "--add-sfx", json.dumps({"at": 1.0, "asset": "pop"}), env=env)
     ose("pacing", proj, "--apply", env=env)
     r = json.loads(ose("render", proj, env=env))
+    assert json.loads((proj / "project.json").read_text())["cut_draft"] is False
     assert r["size"] == "1080x1920"
     q = json.loads(ose("qa", proj, "--json", env=env))
     failed = [c for c in q["checks"] if c["status"] == "error"]

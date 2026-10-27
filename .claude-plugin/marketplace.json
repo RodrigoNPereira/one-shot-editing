@@ -1,0 +1,24 @@
+{
+  "name": "one-shot-editing-marketplace",
+  "owner": {
+    "name": "one-shot-editing contributors"
+  },
+  "metadata": {
+    "description": "Open-source video editing skills for coding agents.",
+    "version": "1.0.1"
+  },
+  "plugins": [
+    {
+      "name": "one-shot-editing",
+      "description": "Turn raw talking-head footage into captioned vertical shorts with music, B-roll, and quality checks.",
+      "version": "1.1.0",
+      "source": "./",
+      "category": "Productivity",
+      "tags": [
+        "video",
+        "editing",
+        "captions"
+      ]
+    }
+  ]
+}

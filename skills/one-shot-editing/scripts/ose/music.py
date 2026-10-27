@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 from .common import MUSIC_DIR, OseError, log, media_kind, probe, read_json, run, strip_accents, write_json
@@ -61,39 +62,61 @@ def guess_mood(bpm, energy, brightness) -> list[str]:
 
 
 def _new_id(seed: str) -> str:
-    return "m" + hashlib.sha1(seed.encode()).hexdigest()[:7]
+    return "m" + hashlib.sha256(seed.encode()).hexdigest()
+
+
+def _content_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def add(source: str, *, tags=(), vibe="", license="unknown", title=None) -> dict:
     MUSIC_DIR.mkdir(parents=True, exist_ok=True)
     items = load_index()
-    if re.match(r"https?://", source):
-        if any(i.get("source_url") == source for i in items):
-            raise OseError(f"already in library: {source}")
-        tmpl = str(MUSIC_DIR / "%(title).80B [%(id)s].%(ext)s")
-        res = run(["yt-dlp", "--no-playlist", "-x", "--audio-format", "mp3", "--audio-quality", "0",
-                   "--print", "after_move:filepath", "-o", tmpl, source], capture=True)
-        path = Path(res.stdout.strip().splitlines()[-1])
-        title = title or re.sub(r"\s*\[[^\]]+\]$", "", path.stem)
-        url = source
-    else:
-        src = Path(source).expanduser().resolve()
-        if media_kind(src) not in ("audio", "video"):
-            raise OseError(f"not an audio file: {src}")
-        path = MUSIC_DIR / src.name
-        if src != path:
+    url = source if re.match(r"https?://", source) else None
+    if url:
+        for item in items:
+            if item.get("source_url") == url:
+                return item
+    import_dir = Path(tempfile.mkdtemp(prefix="import-", dir=MUSIC_DIR))
+    committed = False
+    try:
+        if url:
+            tmpl = str(import_dir / "%(title).80B [%(id)s].%(ext)s")
+            res = run(["yt-dlp", "--no-playlist", "-x", "--audio-format", "mp3", "--audio-quality", "0",
+                       "--print", "after_move:filepath", "-o", tmpl, source], capture=True)
+            path = Path(res.stdout.strip().splitlines()[-1])
+            title = title or re.sub(r"\s*\[[^\]]+\]$", "", path.stem)
+        else:
+            src = Path(source).expanduser().resolve()
+            if media_kind(src) not in ("audio", "video"):
+                raise OseError(f"not an audio file: {src}")
+            path = import_dir / src.name
             shutil.copy2(src, path)
-        title = title or src.stem
-        url = None
-    log(f"analysing {path.name}")
-    feats = analyse(path)
-    moods = feats.pop("mood_guess", [])
-    item = {"id": _new_id(str(path)), "title": title, "path": str(path), "source_url": url, **feats, "moods": moods,
-            "tags": sorted({t.strip().lower() for t in tags if t.strip()}), "vibe": vibe,
-            "license": license, "uses": 0, "added": dt.date.today().isoformat()}
-    items = [i for i in items if i["id"] != item["id"]] + [item]
-    save_index(items)
-    return item
+            title = title or src.stem
+        checksum = _content_hash(path)
+        for item in items:
+            stored = Path(item["path"])
+            if stored.is_file() and _content_hash(stored) == checksum:
+                return item
+        item_id = _new_id(str(path))
+        if any(item["id"] == item_id for item in items):
+            raise OseError(f"music id collision: {item_id}")
+        log(f"analysing {path.name}")
+        feats = analyse(path)
+        moods = feats.pop("mood_guess", [])
+        item = {"id": item_id, "title": title, "path": str(path), "source_url": url, **feats, "moods": moods,
+                "tags": sorted({t.strip().lower() for t in tags if t.strip()}), "vibe": vibe,
+                "license": license, "uses": 0, "added": dt.date.today().isoformat()}
+        save_index(items + [item])
+        committed = True
+        return item
+    finally:
+        if not committed:
+            shutil.rmtree(import_dir, ignore_errors=True)
 
 
 def tag(item_id, *, tags=None, moods=None, vibe=None, license=None, title=None) -> dict:

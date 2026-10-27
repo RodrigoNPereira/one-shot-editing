@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .common import ASSETS, BROLL_DIR, MUSIC_DIR, OSE_HOME, OseError, Project, fmt_time, probe, read_json, which, write_json
+from .common import ASSETS, BROLL_DIR, MUSIC_DIR, OSE_HOME, OseError, Project, fmt_time, load_edl, probe, read_json, which, write_json
 
 
 def out(data) -> None:
@@ -152,11 +152,13 @@ def cmd_qa(a):
     r = run_qa(Project(a.project), target=a.file)
     if a.json:
         out(r)
-        return
-    icon = {"pass": "✔", "warn": "⚠", "error": "✘"}
-    lines = [f"{icon[c['status']]} {c['check']:<20} {c['detail']}" for c in r["checks"]]
-    lines.append(f"\n{r['errors']} errors, {r['warnings']} warnings. Contact sheet: {r['contact_sheet']}")
-    out("\n".join(lines))
+    else:
+        icon = {"pass": "✔", "warn": "⚠", "error": "✘"}
+        lines = [f"{icon[c['status']]} {c['check']:<20} {c['detail']}" for c in r["checks"]]
+        lines.append(f"\n{r['errors']} errors, {r['warnings']} warnings. Contact sheet: {r['contact_sheet']}")
+        out("\n".join(lines))
+    if r["errors"]:
+        raise SystemExit(1)
 
 
 def cmd_cover(a):
@@ -238,8 +240,7 @@ def cmd_perf(a):
 
 
 def cmd_auto(a):
-    """Unattended draft: transcribe -> roughcut -> cut -> captions -> pacing -> render -> qa."""
-    from .captions import run_captions
+    """Reuse transcript and reviewed EDL, then cut -> pacing -> render with captions -> QA."""
     from .cut import render_cut
     from .pacing import run_pacing
     from .qa import run_qa
@@ -249,13 +250,17 @@ def cmd_auto(a):
     p = Project(a.project).require()
     if not p.transcript.exists():
         run_transcribe(p, language=a.lang, model=a.model)
-    run_roughcut(p, pace=a.pace)
-    render_cut(p, reframe=a.reframe)
-    run_captions(p)
+    if a.rebuild_edl or not p.edl.exists():
+        run_roughcut(p, pace=a.pace)
+    else:
+        load_edl(p)
+    render_cut(p, reframe=a.reframe, draft=a.draft)
     run_pacing(p, apply=True, reset_auto=True)
     r = run_render(p, draft=a.draft)
     q = run_qa(p, target=r["out"])
     out({"render": r, "errors": q["errors"], "warnings": q["warnings"], "contact_sheet": q["contact_sheet"]})
+    if q["errors"]:
+        raise SystemExit(1)
 
 
 def cmd_paths(a):
@@ -346,6 +351,7 @@ def build_parser():
     s = proj("isolate-voice", cmd_audio, "Demucs voice isolation for noisy recordings (needs setup --full)")
 
     s = proj("auto", cmd_auto, "unattended draft of the whole pipeline")
+    s.add_argument("--rebuild-edl", action="store_true", help="explicitly replace reviewed cuts; recheck timed plan items afterward")
     s.add_argument("--lang", default=None)
     s.add_argument("--model", default="small")
     s.add_argument("--pace", default="tight", choices=["tight", "natural", "loose"])

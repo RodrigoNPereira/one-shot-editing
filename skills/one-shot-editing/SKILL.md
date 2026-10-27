@@ -13,16 +13,16 @@ description: >-
 
 # one-shot-editing
 
-Raw recording in, post-ready vertical short out. This mirrors a proven creator workflow — **hook → rough cut →
+Raw recording in, reviewed vertical short out. This follows a common creator workflow — **hook → rough cut →
 captions → music → B-roll → transitions/pacing → CTA** — and adds the steps that workflow leaves implicit: audio
 cleanup, reframing, QA, a cover and a performance feedback loop.
 
 Everything is driven by the `ose` CLI (Python toolkit + ffmpeg). You (the agent) make the creative decisions —
 hook, which retakes to keep, music, B-roll placement, CTA — and `ose` does the deterministic work.
 
-```bash
-OSE=~/.agents/skills/one-shot-editing/bin/ose     # or wherever this skill is installed; `$OSE doctor` checks the setup
-```
+Resolve `OSE` to `bin/ose` beside this loaded skill, including when installed in a plugin cache. Do not assume
+`~/.agents/skills` exists. Run `bash "$OSE" doctor` first; use `bash "$OSE"` in place of `$OSE` below if the
+package lacks executable permissions or its path contains spaces.
 
 The first run of any command auto-installs the toolkit into `~/.one-shot-editing/venv` (Python 3.12 via uv). The
 first transcription downloads a Whisper model (~0.5 GB for `small`). If `doctor` fails, run
@@ -55,19 +55,31 @@ show the result plus the QA report.
 - Find the raw footage (ask only if nothing is obvious). Multiple clips → concatenate first, or edit each separately.
 - Learn: topic, target platform (default `tiktok`), target length, tone, what the CTA should drive (follow, comment,
   link in bio, part 2…), and whether there's an app/site/repo to show.
+- Inspect the source and listen to speech before deciding how tightly to cut. Preserve the original recording.
+- For an existing project, inspect its transcript, EDL and plan before rebuilding anything. Use `render --draft`
+  when only a faster preview is requested; existing timed placements depend on the approved cut.
 ```bash
 $OSE init proj --video raw.mp4 [--lang pt|en] [--platform tiktok|reels|shorts]
+```
+If the recording needs optional Demucs isolation, run `$OSE isolate-voice proj` **before transcription**.
+It changes the project's source. For an existing edit, changing the source requires new transcription and
+cut review; do not reuse old timestamps merely because the filenames still exist.
+```bash
 $OSE transcribe proj                 # word timestamps; fillers are kept on purpose so they can be cut
 $OSE text proj                       # readable transcript with timestamps — read it
 ```
+Check names, numbers, negation and important qualifiers against the audio. WhisperX alignment is not always
+available for every token; if it cannot align a word, retry with `transcribe --engine faster-whisper` and
+inspect the result. Never invent timestamps or silently omit an unaligned word to get a render through.
 
 ### 1. Hook ◆
-The first 1–3 seconds decide everything. Read [references/hooks.md](references/hooks.md).
+Make the opening clear quickly, without changing what the speaker meant. Read [references/hooks.md](references/hooks.md).
 1. `$OSE perf summary` — which hook patterns worked best for this creator (if they log results).
 2. `$OSE hooks list --lang <lang> [--pattern …] [--search <topic word>]` — library of proven templates.
 3. Decide two things: the **on-screen hook text** (punchy, ≤ 9 words) and the **spoken opening**. If the strongest
    line is buried mid-video, propose a cold open: `--hook-range START-END` moves it to the front.
-4. Present 3 options (pattern + text + why), recommend one, then:
+4. Present 3 options (pattern + text + why), recommend one, then proceed after approval. In one-shot mode,
+   choose one and record why without waiting:
 ```bash
 $OSE plan proj --set hook.text="..." --set hook.pattern=curiosity-gap
 ```
@@ -80,13 +92,20 @@ $OSE roughcut proj [--pace tight|natural|loose] [--aggressive] [--prefer last|be
   retakes (same line said twice → keeps the last/best take). `--report` lists every decision with an id.
 - Read the report. Restore anything wrong with `--keep r3,r7`; remove extra ranges with `--cut 12.4-15.0`.
   Decision ids depend on the other flags, so re-run with the same `--pace/--aggressive/--prefer` when using `--keep`.
-  Re-running is cheap — iterate on `edl.json` until the story flows. Remove tangents and anything that doesn't
-  serve the hook's promise; a 60 s idea is usually a 25–40 s short.
+  Inspect `REVIEW` entries too: similar takes with changed numbers or negation are preserved, not automatically
+  treated as duplicates. This safeguard is heuristic, not a semantic guarantee. Keep both when uncertain;
+  in one-shot mode, report uncertainty rather than guessing which factual claim is correct.
+- Listen across proposed deletions with surrounding context, not just to the kept transcript. Meaningful
+  repetition, qualifications, numbers and safety context outrank a shorter runtime. Portuguese `um` is not
+  an English filler. Invalid timestamps or cut ranges must be corrected before continuing.
+- Lock the approved cut before timing music, B-roll, captions or SFX. If the EDL changes later, recheck every
+  timed plan item; the toolkit does not automatically rebase those creative placements.
 ```bash
 $OSE cut proj [--reframe face|center|blur|fill]   # renders work/cut.mp4 (1080x1920, frame-exact segments)
 ```
 - `face` (default) tracks the face for 16:9 → 9:16; `blur` = full frame over a blurred fill (screen recordings,
-  two people); vertical sources pass through. Optionally `$OSE isolate-voice proj` (Demucs) for noisy rooms.
+  two people); vertical sources pass through. Haar detection is a framing heuristic: inspect profile views,
+  motion and multiple faces rather than assuming every crop is correct.
 - Show the user the cut length and the transcript of the cut (`$OSE text proj --cut`).
 
 ### 3. Captions
@@ -123,7 +142,8 @@ $OSE plan proj --add-broll '{"asset":"<id>","start":4.2,"duration":2.0,"mode":"f
   `capture_ios.sh`. Details: [references/app-footage.md](references/app-footage.md). Captures land in `_inbox/`.
 
 ### 6. Pacing & transitions
-Hard cuts by default, a punch-in zoom every so often, and **no static shot longer than ~3 s**. See
+Hard cuts by default, with emphasis tied to the spoken point. **Three seconds is a review threshold, not a
+universal retention rule**: preserve intentional pauses and avoid effects that compete with comprehension. See
 [references/retention-rules.md](references/retention-rules.md).
 ```bash
 $OSE pacing proj                 # report: gaps without a visual change
@@ -143,6 +163,7 @@ $OSE plan proj --set cta.text="Follow for part 2"   # shown for the last ~2.8 s 
 Then preview and render:
 ```bash
 $OSE render proj --draft     # fast preview → out/draft.mp4
+$OSE qa proj --file proj/out/draft.mp4   # explicitly check the preview, not an older final
 $OSE render proj             # final → out/final.mp4 (-14 LUFS, 1080x1920, 30 fps, H.264/AAC)
 ```
 
@@ -152,7 +173,13 @@ $OSE qa proj                 # loudness, black frames, dead air, hook speed, pac
 $OSE cover proj [--n 6]                        # no --at: extracts candidate frames — view them and pick one
 $OSE cover proj --at 3.2 --text "THE TITLE"    # out/cover.jpg (clean frame + big title)
 ```
-**Look at `out/contact_sheet.jpg`** (and a few frames) before declaring done. Fix every QA error. Then give the user:
+**Look at `out/contact_sheet.jpg`** (and a few frames), and listen across edit boundaries before declaring done.
+QA errors return exit status 1, including failed measurements or missing required editorial evidence. Fix them
+and rerun the affected steps, or report the output as blocked; never call an unverified file post-ready.
+The editorial checks require readable `work/cut_words.json` and `work/edl.json` with nonempty words/segments.
+QA defaults to `out/final.mp4`; use `--file` for a draft or custom output. Reports are written to `out/qa.json`.
+Warnings still need review, especially preserved take alternatives, flashing captions and CC-BY attribution.
+Technical QA does not certify preserved meaning, good framing, music rights or viewer retention. Then give the user:
 the final file path, length, a post caption (hook restated + 3–5 hashtags, in the video's language), the music
 credit if `cc-by`, and a reminder to log results later:
 ```bash
@@ -160,19 +187,29 @@ $OSE perf add --hook-pattern curiosity-gap --hook "..." --topic "..." --views 12
 ```
 
 ### Fast path
-`$OSE auto proj [--draft]` = transcribe → roughcut → cut → captions → pacing → render → QA with defaults. Good for a
-first look; then refine with the steps above (hook, music, B-roll and CTA still need your judgement).
+`$OSE auto proj [--draft]` reuses an existing transcript and EDL, then runs cut → pacing → render (including
+the plan's caption settings) → QA. Missing transcripts/EDLs are created. Reviewed cuts and captions-off settings
+are preserved; generated pacing zooms are refreshed, while manual zooms stay. It is a first look, not automatic
+editorial approval. Hook, music, B-roll and CTA still need judgement.
+
+Use `auto proj --rebuild-edl` only to deliberately replace the existing cuts, then recheck timed plan items.
+New EDLs fingerprint language, ordered word text/timing and confidence, excluding incidental metadata;
+`auto` and `cut` reject a mismatch. Legacy EDLs have no fingerprint,
+so review their provenance manually. Replacing source footage still requires retranscription and cut review.
+Draft mode uses faster rough-cut encoding; final rendering automatically rebuilds a recorded draft cut at
+full quality. Both `auto` and `qa` exit unsuccessfully when QA reports errors.
 
 ## Plan file
 
-All creative decisions live in `proj/work/plan.json` (`ose plan --set/--add-*` or edit it directly). Schema and
+Cut decisions live in `proj/work/edl.json`; visual/audio treatments live in `proj/work/plan.json`
+(`ose plan --set/--add-*` or edit it directly). Schema and
 examples: [references/plan-schema.md](references/plan-schema.md). Times in the plan are on the **cut timeline**
 (after rough cut), not the raw footage. `ose text proj --cut` shows cut-timeline timestamps.
 
 ## Rules of thumb
-- Hook in the first second; first word ≤ 0.4 s in. No logo intros, no "hey guys".
+- Aim for an early hook and first word; avoid unnecessary intros, but keep the context needed to understand the claim.
 - One idea per short. Cut anything that doesn't pay off the hook.
-- Something changes on screen every ~3 s (cut, zoom, B-roll, text).
+- Review long static stretches; add a cut, zoom, B-roll or text only when it helps the content.
 - Captions: ≤ 3 words, high contrast, inside safe zones, never covering the face or the platform UI.
 - Voice is king: music ducked to ~-18 dB under speech, loudness -14 LUFS.
 - Ask before using copyrighted music in an exported file; prefer in-app sounds for trends.

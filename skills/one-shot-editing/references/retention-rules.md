@@ -1,17 +1,21 @@
 # Retention rules
 
+These are starting heuristics, not proven performance guarantees. Tune them with the creator's results and
+the clip's purpose. Preserving meaning and intelligibility takes priority over runtime or effects frequency.
+
 ## Structure (≈ 20–45 s talking head)
 | Time | Beat | Edit moves |
 |---|---|---|
-| 0–1 s | Hook line plus hook card | Start mid-sentence or on the punchline; optional punch-in zoom at 0.0 s |
+| 0–1 s | Hook line plus hook card | Start on a clear claim or payoff without dropping essential context |
 | 1–3 s | Re-hook / stakes ("…and it took me 10 minutes") | Cut immediately; a B-roll flash of the result |
 | 3 s – end-5 s | Payoff in 2–4 beats | A jump cut between beats; B-roll on every concrete noun you can show; text on numbers |
 | last 3–5 s | CTA / loop line | CTA card; music swell or fade |
 
 ## Pacing
-- **Visual change at least every ~3 s.** Changes include a jump cut, zoom in/out, B-roll in/out, an on-screen text
+- **Review static stretches around ~3 s.** Changes include a jump cut, zoom in/out, B-roll in/out, an on-screen text
   or number, or a card. `ose pacing` measures this (`max_static`, `changes_per_10s`) and `--apply` fills the gaps
-  with alternating zooms.
+  with alternating zooms. Use a larger `--max` for demonstrations or emotional pauses; do not run `--apply`
+  just to force an otherwise clear sequence to pass a pacing heuristic.
 - Target 4–8 changes per 10 s for talking heads. Above about 12 it feels frantic, unless that's the creator's style.
 - **Jump cuts**: when the same framing is cut, alternate the zoom level (1.0 ↔ 1.12) so the cut reads as intentional.
   `ose pacing --apply --jumpcut` does this.
@@ -28,10 +32,12 @@
 
 ## Content
 - One idea per video. If the transcript has two ideas, propose two videos.
-- Cut setup ("so basically", "what I wanted to say is") and any "context" the viewer doesn't need.
+- Cut unnecessary setup only after listening in context. Preserve negation, quantities, qualifications,
+  dependencies and the setup needed for the payoff. Fuzzy similarity alone cannot prove two takes mean the same thing.
 - Open loops: tease the best item ("…and number 3 is the one nobody uses") to hold viewers until the end.
 - End with a payoff, not with a fade-out of energy. The final words should be strong.
 
 ## Length targets
-TikTok: 21–34 s is the sweet spot for most talking heads; up to 60 s if the story holds. Reels: 15–30 s.
-Shorts: under 60 s performs best (up to 3 min is allowed). QA warns outside 12–75 s.
+Start with a 20–60 s brief when appropriate, then let a complete idea determine the duration. QA's 12–75 s
+warning is a local editorial heuristic, not a platform restriction or a prediction of performance.
+Check current platform upload limits separately; neither this guide nor a passing QA score proves retention.
