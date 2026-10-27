@@ -1,6 +1,8 @@
-<img src="assets/logo.svg" width="96" height="96" alt="One-Shot Editing: a paper target with a play button">
-
 # one-shot-editing
+
+<p align="center">
+  <img src="assets/logo.svg" width="192" height="192" alt="One-Shot Editing: a paper target with a play button">
+</p>
 
 An open-source **plugin marketplace** for Claude Code, GitHub Copilot, and Codex, shipping the
 **one-shot-editing** skill. It also works with any agent that reads `SKILL.md`. The skill
