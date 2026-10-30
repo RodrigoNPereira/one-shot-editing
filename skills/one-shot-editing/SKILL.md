@@ -40,7 +40,7 @@ in their language and write on-screen text (hook, CTA, captions) in the video's 
 | Route | When | How |
 |---|---|---|
 | **ffmpeg (default)** | Normal talking-head shorts; speed matters; batch editing | `ose render` (everything below) |
-| **HyperFrames** | The user wants *designed* output: kinetic typography, branded animated cards, captions embedded behind the subject, motion graphics, explainer inserts | Do the cut with `ose` (steps 1–3), then hand `work/cut.mp4` + `work/cut_words.json` to HyperFrames — see [references/hyperframes-route.md](references/hyperframes-route.md) |
+| **HyperFrames** | The user wants *designed* output: kinetic typography, branded animated cards, captions embedded behind the subject, motion graphics, explainer inserts | Cut with `ose`, run `export --format browser`, then hand `out/browser-cut.mp4` + `work/cut_words.json` to HyperFrames — see [references/hyperframes-route.md](references/hyperframes-route.md) |
 
 Mixing is fine: render the short with ffmpeg and build one or two designed inserts (title card, animated stat) in
 HyperFrames, then drop the rendered inserts in as B-roll.
@@ -56,10 +56,16 @@ show the result plus the QA report.
 - Learn: topic, target platform (default `tiktok`), target length, tone, what the CTA should drive (follow, comment,
   link in bio, part 2…), and whether there's an app/site/repo to show.
 - Inspect the source and listen to speech before deciding how tightly to cut. Preserve the original recording.
+- **Preserve source quality.** The default `source` profile keeps supported SDR/CFR native resolution (or
+  native-resolution portrait crop), FPS, bit depth, chroma and color tags, with lossless intermediates and final
+  video encoding. Do not silently downgrade 4K/60 fps/10-bit footage. Crop/zoom/compositing still change pixels.
+  Lossless masters can be large and may not be upload/browser compatible. Use `--quality social` only for an
+  explicit 1080x1920/30 fps/8-bit delivery conversion. HDR/Dolby Vision and unsupported source formats stop
+  processing rather than losing color/detail silently; use an appropriate color-managed workflow.
 - For an existing project, inspect its transcript, EDL and plan before rebuilding anything. Use `render --draft`
   when only a faster preview is requested; existing timed placements depend on the approved cut.
 ```bash
-$OSE init proj --video raw.mp4 [--lang pt|en] [--platform tiktok|reels|shorts]
+$OSE init proj --video raw.mp4 [--lang pt|en] [--platform tiktok|reels|shorts] [--quality source|social]
 ```
 If the recording needs optional Demucs isolation, run `$OSE isolate-voice proj` **before transcription**.
 It changes the project's source. For an existing edit, changing the source requires new transcription and
@@ -99,13 +105,15 @@ $OSE roughcut proj [--pace tight|natural|loose] [--aggressive] [--prefer last|be
   repetition, qualifications, numbers and safety context outrank a shorter runtime. Portuguese `um` is not
   an English filler. Invalid timestamps or cut ranges must be corrected before continuing.
 - Lock the approved cut before timing music, B-roll, captions or SFX. If the EDL changes later, recheck every
-  timed plan item; the toolkit does not automatically rebase those creative placements.
+  timed plan item, then use `plan --accept-timeline`; the toolkit does not automatically rebase placements.
+  Watch `review --reel` for deletion context (red border = removed footage), then persist the cut approval:
+  `$OSE review proj --approve cut --note "Reviewed deletions and preserved meaning"`.
 ```bash
-$OSE cut proj [--reframe face|center|blur|fill]   # renders work/cut.mp4 (1080x1920, frame-exact segments)
+$OSE cut proj [--reframe face|center|blur|fill]   # renders lossless work/cut.mkv at source-profile dimensions/FPS
 ```
-- `face` (default) tracks the face for 16:9 → 9:16; `blur` = full frame over a blurred fill (screen recordings,
-  two people); vertical sources pass through. Haar detection is a framing heuristic: inspect profile views,
-  motion and multiple faces rather than assuming every crop is correct.
+- `face` (default) generates smoothed time-varying crop trajectories; `blur` = full frame over a blurred fill.
+  `framing.tracking=static` retains the old median-per-segment crop; `framing.center=0.4` sets a manual center.
+  Haar detection is a heuristic, not active-speaker tracking: inspect profile views, misses and multiple faces.
 - Show the user the cut length and the transcript of the cut (`$OSE text proj --cut`).
 
 ### 3. Captions
@@ -164,7 +172,7 @@ Then preview and render:
 ```bash
 $OSE render proj --draft     # fast preview → out/draft.mp4
 $OSE qa proj --file proj/out/draft.mp4   # explicitly check the preview, not an older final
-$OSE render proj             # final → out/final.mp4 (-14 LUFS, 1080x1920, 30 fps, H.264/AAC)
+$OSE render proj             # source-quality master → out/final.mp4; measured two-pass audio
 ```
 
 ### 8. QA, cover, post copy
@@ -185,6 +193,11 @@ credit if `cc-by`, and a reminder to log results later:
 ```bash
 $OSE perf add --hook-pattern curiosity-gap --hook "..." --topic "..." --views 12000 --retention-3s-pct 62 --completion-pct 31
 ```
+Record final approval only after reviewing this exact output:
+`$OSE review proj --approve final --note "Watched output and checked audio/captions/framing"`.
+Rendered QA samples actual libass glyph bounds, card/caption collisions and detected-face overlaps; it is not
+exhaustive and face-detection misses still need human review. Review source-quality master compatibility before
+upload; the social profile is an explicit conversion, not the archival master.
 
 ### Fast path
 `$OSE auto proj [--draft]` reuses an existing transcript and EDL, then runs cut → pacing → render (including
@@ -193,9 +206,9 @@ are preserved; generated pacing zooms are refreshed, while manual zooms stay. It
 editorial approval. Hook, music, B-roll and CTA still need judgement.
 
 Use `auto proj --rebuild-edl` only to deliberately replace the existing cuts, then recheck timed plan items.
-New EDLs fingerprint language, ordered word text/timing and confidence, excluding incidental metadata;
-`auto` and `cut` reject a mismatch. Legacy EDLs have no fingerprint,
-so review their provenance manually. Replacing source footage still requires retranscription and cut review.
+EDLs fingerprint source bytes and ordered transcript content. Cut/render records additionally bind quality,
+framing, plan, asset and media bytes; stale artifacts are rejected. Legacy projects require retranscription or
+explicit `provenance --adopt` after manual source/transcript review, followed by a new cut.
 Draft mode uses faster rough-cut encoding; final rendering automatically rebuilds a recorded draft cut at
 full quality. Both `auto` and `qa` exit unsuccessfully when QA reports errors.
 
@@ -214,6 +227,10 @@ examples: [references/plan-schema.md](references/plan-schema.md). Times in the p
 - Voice is king: music ducked to ~-18 dB under speech, loudness -14 LUFS.
 - Ask before using copyrighted music in an exported file; prefer in-app sounds for trends.
 - Always look at the output (contact sheet / frames) — never ship blind.
+- Use cohort/sample-aware `perf summary`; do not present one successful post as evidence a hook is better.
+- Optional `export` creates OTIO source cuts; effects stay metadata. Semantic B-roll retrieval requires explicit
+  `broll index-semantic` and `broll search --semantic`, runs locally and downloads model weights only on opt-in.
+- For quality experiments and consented real-media benchmarks, read [evaluation.md](references/evaluation.md).
 
 ## References
 - [hooks.md](references/hooks.md) · [cta.md](references/cta.md) · [retention-rules.md](references/retention-rules.md)

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "One-shot editing plan",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "edl_revision": {"type": ["string", "null"]},
+    "platform": {"enum": ["tiktok", "reels", "shorts"]},
+    "output": {
+      "type": "object", "additionalProperties": false,
+      "properties": {"profile": {"enum": ["source", "social"]}}
+    },
+    "framing": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "center": {"type": "number", "minimum": 0, "maximum": 1},
+        "tracking": {"enum": ["dynamic", "static"]},
+        "max_speed": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
+      }
+    },
+    "hook": {"$ref": "#/$defs/card"},
+    "cta": {"$ref": "#/$defs/card"},
+    "captions": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "style": {"enum": ["bold-pop", "impact", "clean", "minimal"]},
+        "words_per_chunk": {"type": "integer", "minimum": 1, "maximum": 12}
+      }
+    },
+    "audio": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "clean": {"type": "boolean"},
+        "normalization": {"enum": ["two-pass", "dynamic", "off"]},
+        "lufs": {"type": "number", "minimum": -70, "maximum": -5},
+        "true_peak": {"type": "number", "minimum": -9, "maximum": 0},
+        "lra": {"type": "number", "minimum": 1, "maximum": 50}
+      }
+    },
+    "music": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "track": {"type": "string", "minLength": 1},
+        "volume_db": {"type": "number", "minimum": -90, "maximum": 12},
+        "start_offset": {"$ref": "#/$defs/time"},
+        "duck": {"type": "boolean"}
+      }
+    },
+    "broll": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["asset", "start", "duration"],
+        "properties": {
+          "asset": {"type": "string", "minLength": 1},
+          "start": {"$ref": "#/$defs/time"},
+          "duration": {"type": "number", "exclusiveMinimum": 0},
+          "source_in": {"$ref": "#/$defs/time"},
+          "mode": {"enum": ["full", "pip"]}
+        }
+      }
+    },
+    "zooms": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["start", "end"],
+        "properties": {
+          "start": {"$ref": "#/$defs/time"}, "end": {"$ref": "#/$defs/time"},
+          "scale": {"type": "number", "minimum": 1, "maximum": 3},
+          "style": {"enum": ["punch", "smooth", "slow"]}, "auto": {"type": "boolean"}
+        }
+      }
+    },
+    "texts": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["text", "start", "end"],
+        "properties": {
+          "text": {"type": "string", "minLength": 1},
+          "start": {"$ref": "#/$defs/time"}, "end": {"$ref": "#/$defs/time"},
+          "style": {"enum": ["Title", "Card"]}
+        }
+      }
+    },
+    "sfx": {
+      "type": "array", "items": {
+        "type": "object", "additionalProperties": false, "required": ["asset", "at"],
+        "properties": {
+          "asset": {"type": "string", "minLength": 1}, "at": {"$ref": "#/$defs/time"},
+          "volume_db": {"type": "number", "minimum": -90, "maximum": 12}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "time": {"type": "number", "minimum": 0},
+    "card": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "text": {"type": "string"}, "pattern": {"type": "string"},
+        "on_screen": {"type": "boolean"},
+        "duration": {"type": "number", "exclusiveMinimum": 0},
+        "start": {"type": ["number", "null"], "minimum": 0}
+      }
+    }
+  }
+}

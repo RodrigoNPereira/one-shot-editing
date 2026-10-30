@@ -38,7 +38,7 @@ def test_full_pipeline(tmp_path):
                     str(img)], check=True)
 
     proj = tmp_path / "proj"
-    ose("init", proj, "--video", src, "--lang", "en", env=env)
+    ose("init", proj, "--video", src, "--lang", "en", "--quality", "social", env=env)
     words = []
     for text, start in [("This is take one of the line.", 0.5), ("This is take one of the line.", 3.5),
                         ("um and here is more content now.", 7.0)]:
@@ -47,6 +47,7 @@ def test_full_pipeline(tmp_path):
             words.append({"word": w, "start": round(t, 3), "end": round(t + 0.25, 3), "prob": 0.9})
             t += 0.3
     (proj / "work" / "transcript.json").write_text(json.dumps({"language": "en", "words": words}))
+    ose("provenance", proj, "--adopt", env=env)
 
     ose("roughcut", proj, env=env)
     edl = json.loads((proj / "work" / "edl.json").read_text())
@@ -57,7 +58,7 @@ def test_full_pipeline(tmp_path):
     ose("roughcut", proj, env=env)
     ose("cut", proj, "--reframe", "center", "--draft", env=env)
     assert json.loads((proj / "project.json").read_text())["cut_draft"] is True
-    cut = proj / "work" / "cut.mp4"
+    cut = proj / "work" / "cut.mkv"
     expected = sum(round((s["out"] - s["in"]) * 30) for s in json.loads((proj / "work" / "edl.json").read_text())["segments"])
     assert frames(cut) == expected
 

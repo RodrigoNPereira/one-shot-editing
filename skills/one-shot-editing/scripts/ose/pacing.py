@@ -83,8 +83,14 @@ def jumpcut_zooms(plan, segments, scale=1.08):
 def run_pacing(project: Project, *, max_gap=3.0, apply=False, jumpcut=False, scale=1.12, style="smooth",
                reset_auto=False) -> dict:
     project.require()
+    from .common import OseError, validate_plan
+    from .provenance import check_cut, check_plan_revision
+    if not math.isfinite(max_gap) or max_gap <= 0:
+        raise OseError("pacing max gap must be finite and positive")
+    check_cut(project)
     plan = load_plan(project)
-    segments = read_json(project.edl)["segments"]
+    current = check_plan_revision(project, plan)
+    segments = read_json(project.cut_words)["segments"]
     duration = probe(project.cut)["duration"]
     if reset_auto:
         plan["zooms"] = [z for z in plan.get("zooms", []) if not z.get("auto")]
@@ -94,6 +100,8 @@ def run_pacing(project: Project, *, max_gap=3.0, apply=False, jumpcut=False, sca
         added = jumpcut_zooms(plan, segments) if jumpcut else []
         gaps = analyse(plan, segments, duration, max_gap)["gaps"]
         added += fill_gaps(plan, gaps, target=max_gap * 0.8, scale=scale, style=style)
+        plan["edl_revision"] = current
+        validate_plan(plan, duration)
         write_json(project.plan, plan)
         result["added_zooms"] = len(added)
         result["after"] = analyse(plan, segments, duration, max_gap)

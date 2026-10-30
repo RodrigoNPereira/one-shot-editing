@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # one-shot-editing CLI wrapper: runs the toolkit inside its own venv.
 set -euo pipefail
-SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  DIR="$(cd "$(dirname "$SELF")" && pwd)"
+  SELF="$(readlink "$SELF")"
+  [[ "$SELF" = /* ]] || SELF="$DIR/$SELF"
+done
 SKILL_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
 OSE_HOME="${OSE_HOME:-$HOME/.one-shot-editing}"
 VENV="${OSE_VENV:-$OSE_HOME/venv}"
 PY="$VENV/bin/python"
-if [[ ! -x "$PY" ]]; then
-  echo "[ose] environment missing; running setup..." >&2
-  "$SKILL_DIR/scripts/setup.sh" >&2
+EXPECTED="$(cksum < "$SKILL_DIR/uv.lock")"
+CURRENT=""
+[[ ! -f "$VENV/.ose-lock" ]] || CURRENT="$(<"$VENV/.ose-lock")"
+if [[ ! -x "$PY" ]] || { [[ -z "${OSE_VENV:-}" ]] && [[ "$EXPECTED" != "$CURRENT" ]]; }; then
+  echo "[ose] environment missing or lock changed; running setup..." >&2
+  EXTRAS=()
+  [[ ! -f "$VENV/.ose-extras" ]] || read -r -a EXTRAS < "$VENV/.ose-extras"
+  bash "$SKILL_DIR/scripts/setup.sh" "${EXTRAS[@]}" >&2
 fi
 export PATH="$VENV/bin:$PATH"
 export PYTHONPATH="$SKILL_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}"

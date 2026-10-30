@@ -4,7 +4,8 @@ from __future__ import annotations
 import math
 import time
 
-from .common import OseError, Project, ffmpeg, log, write_json
+from .common import OseError, Project, ffmpeg, log, read_json, write_json
+from .provenance import digest
 
 # Prompting Whisper with disfluent text makes it keep "um"/"uh" instead of silently cleaning them,
 # which is what lets the rough cut find and remove filler words.
@@ -19,7 +20,7 @@ def extract_audio(src, dst) -> None:
     ffmpeg(["-i", src, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", dst])
 
 
-def transcribe_faster_whisper(audio, language, model_name, keep_fillers):
+def transcribe_faster_whisper(audio, language, model_name, keep_fillers, *, vad=False, batch_size=None):
     from faster_whisper import WhisperModel
 
     model = WhisperModel(model_name, device="auto", compute_type="int8")
@@ -27,14 +28,19 @@ def transcribe_faster_whisper(audio, language, model_name, keep_fillers):
     import soundfile as sf
 
     samples, _ = sf.read(str(audio), dtype="float32")  # 16 kHz mono wav; avoids PyAV version issues
+    if batch_size:
+        from faster_whisper import BatchedInferencePipeline
+        model = BatchedInferencePipeline(model)
+    options = {"batch_size": batch_size} if batch_size else {}
     segments, info = model.transcribe(
         samples,
         language=language,
         word_timestamps=True,
         initial_prompt=prompt,
         condition_on_previous_text=False,
-        vad_filter=False,
+        vad_filter=vad,
         beam_size=5,
+        **options,
     )
     words, segs = [], []
     for s in segments:
@@ -83,13 +89,23 @@ def transcribe_whisperx(audio, language, model_name, keep_fillers):
     return words, segs, lang, None
 
 
-def run_transcribe(project: Project, *, language=None, model="small", engine="auto", keep_fillers=True) -> dict:
+def run_transcribe(project: Project, *, language=None, model="small", engine="auto", keep_fillers=True,
+                   vad=False, batch_size=None) -> dict:
     project.require()
+    if batch_size is not None and batch_size <= 0:
+        raise OseError("batch size must be positive")
+    if batch_size and not vad:
+        raise OseError("batched transcription requires explicit --vad; inspect quiet speech and filler coverage")
     project.work.mkdir(parents=True, exist_ok=True)
     audio = project.work / "audio16k.wav"
-    if not audio.exists() or audio.stat().st_mtime < project.source.stat().st_mtime:
+    source_hash = digest(project.source)
+    audio_record = project.work / "audio.provenance.json"
+    cached_audio = read_json(audio_record, {})
+    if (not audio.exists() or cached_audio.get("source_sha256") != source_hash or
+            cached_audio.get("audio_sha256") != digest(audio)):
         log("extracting audio")
         extract_audio(project.source, audio)
+        write_json(audio_record, {"source_sha256": source_hash, "audio_sha256": digest(audio)})
 
     language = language or project.meta.get("language") or None
     if engine == "auto":
@@ -101,15 +117,21 @@ def run_transcribe(project: Project, *, language=None, model="small", engine="au
     t0 = time.time()
     log(f"transcribing with {engine} ({model}, language={language or 'auto'})")
     if engine == "whisperx":
+        if vad or batch_size:
+            raise OseError("--vad/--batch-size require --engine faster-whisper")
         words, segs, lang, lang_p = transcribe_whisperx(audio, language, model, keep_fillers)
     elif engine == "faster-whisper":
-        words, segs, lang, lang_p = transcribe_faster_whisper(audio, language, model, keep_fillers)
+        words, segs, lang, lang_p = transcribe_faster_whisper(audio, language, model, keep_fillers,
+                                                           vad=vad, batch_size=batch_size)
     else:
         raise OseError(f"unknown engine {engine}")
     if not words:
         raise OseError("no speech detected")
 
+    if digest(project.source) != source_hash:
+        raise OseError("source changed during transcription; retry on an immutable source")
     data = {"engine": engine, "model": model, "language": lang, "language_probability": lang_p,
+            "source_sha256": source_hash, "options": {"keep_fillers": keep_fillers, "vad": vad, "batch_size": batch_size},
             "words": words, "segments": segs, "elapsed_s": round(time.time() - t0, 1)}
     write_json(project.transcript, data)
     project.update_meta(language=lang)

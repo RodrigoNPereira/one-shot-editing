@@ -6,6 +6,7 @@ import pytest
 from ose import qa
 from ose.__main__ import cmd_qa
 from ose.common import OseError, Project, write_json
+from ose.provenance import digest, edl_revision, revision
 
 
 @pytest.fixture
@@ -16,6 +17,18 @@ def qa_project(tmp_path, monkeypatch):
     write_json(project.plan, {"hook": {"text": "Hook"}, "cta": {"text": "Save"}})
     write_json(project.cut_words, {"words": [{"word": "Hello", "start": 0.1, "end": 0.5}]})
     write_json(project.edl, {"segments": [{"in": 0, "out": 20}]})
+    project.final.write_bytes(b"rendered")
+    project.cut.write_bytes(b"cut")
+    monkeypatch.setattr(qa, "check_cut", lambda project: {})
+    monkeypatch.setattr(qa, "render_assets", lambda plan: {})
+    monkeypatch.setattr(qa, "check_plan_revision", lambda project, plan: edl_revision(project))
+    write_json(project.final.with_suffix(".mp4.provenance.json"), {
+        "file_sha256": digest(project.final), "cut_sha256": digest(project.cut),
+        "assets": {},
+        "edl_revision": edl_revision(project),
+        "plan_sha256": revision({"hook": {"text": "Hook"}, "cta": {"text": "Save"},
+                                 "zooms": [], "texts": [], "broll": []}),
+    })
     monkeypatch.setattr(qa, "probe", lambda path: {
         "width": 1080, "height": 1920, "fps": 30, "audio": True, "duration": 20,
     })

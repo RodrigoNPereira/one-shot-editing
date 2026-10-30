@@ -1,0 +1,28 @@
+[project]
+name = "one-shot-editing-toolkit"
+version = "2.0.0"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "faster-whisper>=1.1,<2",
+    "rapidfuzz>=3,<4",
+    "yt-dlp>=2025.1",
+    "scenedetect>=0.6.7,<0.7",
+    "opencv-python>=4.11,<5",
+    "numpy>=1.26,<3",
+    "librosa>=0.10,<1",
+    "soundfile>=0.12,<1",
+    "jsonschema>=4.23,<5",
+    "pillow>=11,<13",
+]
+
+[project.optional-dependencies]
+alignment = ["whisperx>=3.3,<4"]
+isolation = ["demucs>=4,<5"]
+semantic = ["open-clip-torch>=3,<4"]
+interchange = ["opentimelineio>=0.17,<1"]
+
+[dependency-groups]
+dev = ["pytest>=8,<9", "ruff==0.14.2"]
+
+[tool.uv]
+package = false

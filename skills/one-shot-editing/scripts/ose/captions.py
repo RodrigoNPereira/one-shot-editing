@@ -1,7 +1,7 @@
 """Captions (2-3 words at a time, active word highlight) plus hook/CTA text cards, as ASS subtitles."""
 from __future__ import annotations
 
-from .common import ASSETS, H, W, Project, load_plan, log, read_json, write_json
+from .common import ASSETS, H, W, Project, load_plan, log, read_json, validate_plan, write_json
 
 SENT_BREAK = (".", "?", "!", "…", ",", ";", ":")
 
@@ -65,11 +65,11 @@ def _header(style):
     bold = 0
     rows = [
         f"Style: Cap,{s['font']},{s['size']},{s['color']},&H000000FF,{s['outline_color']},{s['back']},{bold},0,0,0,"
-        f"100,100,0,0,{s['border']},{s['outline']},{s['shadow']},2,80,80,{s['margin_v']},1",
+        f"100,100,0,0,{s['border']},{s['outline']},{s['shadow']},2,150,150,{s['margin_v']},1",
         "Style: Card,Montserrat ExtraBold,66,&H00101010,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,"
-        "100,100,0,0,3,18,0,8,110,110,300,1",  # BorderStyle 3: per-line boxes, like TikTok native text
+        "100,100,0,0,3,18,0,8,150,150,300,1",  # BorderStyle 3: per-line boxes, like TikTok native text
         "Style: Title,Anton,120,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,"
-        "100,100,0,0,1,8,3,5,90,90,0,1",
+        "100,100,0,0,1,8,3,5,150,150,0,1",
     ]
     return "\n".join([
         "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}", "WrapStyle: 0",
@@ -147,16 +147,20 @@ def to_srt(chunks):
 
 def run_captions(project: Project, *, style=None, max_words=None, show_captions=True) -> dict:
     project.require()
+    from .provenance import check_cut, check_plan_revision
+    check_cut(project)
     from .common import probe
     words = read_json(project.cut_words)["words"]
     plan = load_plan(project)
+    check_plan_revision(project, plan)
     cap = plan.setdefault("captions", {})
     style = style or cap.get("style", "bold-pop")
-    max_words = max_words or cap.get("words_per_chunk", 3)
+    max_words = max_words if max_words is not None else cap.get("words_per_chunk", 3)
     if style not in STYLES:
         raise SystemExit(f"unknown caption style {style}; choose from {', '.join(STYLES)}")
     duration = probe(project.cut)["duration"]
     cap.update(style=style, words_per_chunk=max_words, enabled=bool(show_captions))
+    validate_plan(plan, duration)
     write_json(project.plan, plan)  # persisted so `ose render` can rebuild the overlay after plan edits
     ass, chunks = build_ass(words, plan, duration, style, max_words, show_captions=cap["enabled"])
     project.captions_ass.write_text(ass, encoding="utf-8")

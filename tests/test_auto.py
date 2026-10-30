@@ -5,14 +5,17 @@ import pytest
 from ose import captions, cut, pacing, qa, render, roughcut, transcribe
 from ose.__main__ import build_parser, cmd_auto
 from ose.common import OseError, Project, read_json, write_json
+from ose.provenance import adopt
 
 
 @pytest.fixture
 def auto_project(tmp_path, monkeypatch):
     project = Project(tmp_path)
     project.save_meta({"source": "source.mp4"})
+    project.source.write_bytes(b"test-source")
     write_json(project.transcript, {"words": [{"word": "Hi", "start": 0, "end": 1}]})
     write_json(project.edl, {"segments": [{"in": 0, "out": 1}], "reviewed": True})
+    adopt(project)
     write_json(project.plan, {"captions": {"enabled": False}})
     calls = []
     monkeypatch.setattr(transcribe, "run_transcribe", lambda *args, **kwargs: calls.append("transcribe"))
@@ -45,6 +48,7 @@ def test_auto_rejects_edl_from_a_different_transcript(auto_project):
     project, calls = auto_project
     edl = read_json(project.edl)
     edl["transcript_sha256"] = hashlib.sha256(project.transcript.read_bytes()).hexdigest()
+    edl.pop("transcript_fingerprint_version", None)
     write_json(project.edl, edl)
     write_json(project.transcript, {"words": [{"word": "Changed", "start": 2, "end": 3}]})
     with pytest.raises(OseError, match="transcript changed"):

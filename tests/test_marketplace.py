@@ -43,6 +43,9 @@ def test_marketplace_resolves_complete_plugin(catalog_path):
         "scripts/ose/__main__.py",
         "references/plan-schema.md",
         "assets/hooks.json",
+        "assets/plan.schema.json",
+        "pyproject.toml",
+        "uv.lock",
     ):
         assert (skill_root / asset).is_file(), asset
 

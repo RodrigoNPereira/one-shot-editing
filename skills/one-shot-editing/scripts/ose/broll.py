@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from .common import BROLL_DIR, OseError, ffmpeg, log, media_kind, probe, read_json, slug, strip_accents, write_json
+from .locking import index_transaction
 
 INDEX = BROLL_DIR / "index.json"
 INBOX = BROLL_DIR / "_inbox"
@@ -63,6 +64,7 @@ def make_thumbs(item: dict, n_max=6, *, directory=None) -> list[str]:
     return thumbs
 
 
+@index_transaction
 def ingest(paths=None, *, source="user", project=None, copy=False) -> list[dict]:
     """Ingest files/folders (default: the _inbox drop folder). Inbox files are moved (unless copy=True); explicit paths are copied."""
     INBOX.mkdir(parents=True, exist_ok=True)
@@ -128,6 +130,7 @@ def pending() -> list[dict]:
             for it in load_index() if it["status"] == "unlabeled"]
 
 
+@index_transaction
 def label(iid, *, category, labels=(), description="", sort=True) -> dict:
     items = load_index()
     it = find(items, iid)
@@ -139,8 +142,18 @@ def label(iid, *, category, labels=(), description="", sort=True) -> dict:
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / Path(it["path"]).name
         if Path(it["path"]) != dest:
-            shutil.move(it["path"], dest)
+            source = Path(it["path"])
+            if dest.exists():
+                raise OseError(f"refusing to overwrite B-roll destination: {dest}")
+            shutil.copy2(source, dest)
             it["path"] = str(dest)
+            try:
+                save_index(items)
+            except Exception:
+                dest.unlink()
+                raise
+            source.unlink()
+            return it
     save_index(items)
     return it
 
@@ -180,6 +193,7 @@ def resolve(ref: str) -> dict:
     return find(load_index(), ref)
 
 
+@index_transaction
 def mark_used(iid) -> None:
     items = load_index()
     for it in items:

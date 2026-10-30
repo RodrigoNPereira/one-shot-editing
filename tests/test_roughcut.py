@@ -134,9 +134,13 @@ def test_edl_fingerprint_ignores_metadata_but_detects_changed_words(tmp_path, mo
     from ose import roughcut
     project = Project(tmp_path)
     project.save_meta({"source": "source.mp4"})
+    project.source.write_bytes(b"test-source")
     monkeypatch.setattr(roughcut, "probe", lambda path: {"duration": 4})
     transcript = {"language": "en", "elapsed_s": 1, "words": words_factory(sentence("Keep my edit.", 0))}
     write_json(project.transcript, transcript)
+    from ose.provenance import adopt
+    adopt(project)
+    transcript = read_json(project.transcript)
     run_roughcut(project)
     reviewed = read_json(project.edl)
     transcript["elapsed_s"] = 99

@@ -4,9 +4,11 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import re
+import math
 from collections import defaultdict
 
 from .common import ASSETS, OSE_HOME, PERF_CSV, OseError, read_json, strip_accents, write_json
+from .locking import locked
 
 USER_HOOKS = OSE_HOME / "hooks.user.json"
 PERF_FIELDS = ["date", "platform", "url", "topic", "hook", "hook_pattern", "language", "duration_s", "views",
@@ -45,16 +47,18 @@ def add_hook(*, pattern, en=None, pt=None) -> dict:
         raise OseError(f"unknown pattern {pattern}; one of {', '.join(lib['patterns'])}")
     if not (en or pt):
         raise OseError("give --en and/or --pt text")
-    user = read_json(USER_HOOKS, {"hooks": []})
-    h = {"id": f"u{len(user['hooks']) + 1}", "pattern": pattern, **({"en": en} if en else {}), **({"pt": pt} if pt else {})}
-    user["hooks"].append(h)
-    write_json(USER_HOOKS, user)
+    with locked(USER_HOOKS):
+        user = read_json(USER_HOOKS, {"hooks": []})
+        h = {"id": f"u{len(user['hooks']) + 1}", "pattern": pattern, **({"en": en} if en else {}), **({"pt": pt} if pt else {})}
+        user["hooks"].append(h)
+        write_json(USER_HOOKS, user)
     return h
 
 
 def _num(v):
     try:
-        return float(str(v).replace(",", "").replace("%", "")) if str(v).strip() else None
+        number = float(str(v).replace(",", "").replace("%", "")) if str(v).strip() else None
+        return number if number is not None and math.isfinite(number) else None
     except ValueError:
         return None
 
@@ -72,36 +76,61 @@ def perf_add(**kv) -> dict:
     for k, v in kv.items():
         if k in row and v is not None:
             row[k] = v
-    new = not PERF_CSV.exists()
     PERF_CSV.parent.mkdir(parents=True, exist_ok=True)
-    with PERF_CSV.open("a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=PERF_FIELDS)
-        if new:
-            w.writeheader()
-        w.writerow(row)
+    for key in PERF_FIELDS[7:]:
+        if row[key] != "":
+            value = _num(row[key])
+            if value is None or value < 0 or (key.endswith("_pct") and value > 100):
+                raise OseError(f"{key} must be nonnegative and percentages must be <= 100")
+    with locked(PERF_CSV):
+        new = not PERF_CSV.exists()
+        with PERF_CSV.open("a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=PERF_FIELDS)
+            if new:
+                w.writeheader()
+            w.writerow(row)
     return row
 
 
-def perf_summary(top=5) -> dict:
-    rows = perf_rows()
+def perf_summary(top=5, *, platform=None, language=None, min_samples=5) -> dict:
+    if min_samples < 2:
+        raise OseError("min_samples must be at least 2")
+    with locked(PERF_CSV):
+        rows = [row for row in perf_rows() if (not platform or row.get("platform") == platform)
+                and (not language or row.get("language") == language)]
     if not rows:
         return {"videos": 0, "note": "no performance data yet; rank hooks by topic fit only"}
     by = defaultdict(list)
     for r in rows:
-        by[r.get("hook_pattern") or "unknown"].append(r)
+        duration = _num(r.get("duration_s"))
+        bucket = "unknown" if duration is None else ("0-30s" if duration <= 30 else "31-60s" if duration <= 60 else ">60s")
+        by[(r.get("platform") or "unknown", r.get("language") or "unknown", bucket,
+            r.get("hook_pattern") or "unknown")].append(r)
 
     def avg(rs, key):
         vals = [x for x in (_num(r.get(key)) for r in rs) if x is not None]
         return round(sum(vals) / len(vals), 1) if vals else None
 
     patterns = []
-    for p, rs in by.items():
-        patterns.append({"pattern": p, "videos": len(rs), "avg_views": avg(rs, "views"),
+    for (pf, lang, bucket, p), rs in by.items():
+        observations = [value for row in rs if (value := _num(row.get("retention_3s_pct"))) is not None]
+        n = len(observations)
+        se = None
+        if n >= 2:
+            mean = sum(observations) / n
+            se = math.sqrt(sum((value - mean) ** 2 for value in observations) / (n - 1) / n)
+        patterns.append({"platform": pf, "language": lang, "duration_bucket": bucket,
+                         "pattern": p, "videos": len(rs), "retention_samples": n,
+                         "sufficient_data": n >= min_samples and "unknown" not in (pf, lang, bucket),
+                         "retention_standard_error": round(se, 2) if se is not None else None,
+                         "avg_views": avg(rs, "views"),
                          "avg_retention_3s": avg(rs, "retention_3s_pct"), "avg_completion": avg(rs, "completion_pct"),
                          "avg_shares": avg(rs, "shares")})
     # rank by 3s retention first (the hook's actual job), then views
-    patterns.sort(key=lambda p: (p["avg_retention_3s"] or 0, p["avg_views"] or 0), reverse=True)
+    patterns.sort(key=lambda p: (p["platform"], p["language"], p["duration_bucket"],
+                                not p["sufficient_data"], -(p["avg_retention_3s"] or 0)))
     best = sorted(rows, key=lambda r: _num(r.get("views")) or 0, reverse=True)[:top]
-    return {"videos": len(rows), "patterns": patterns,
+    return {"videos": len(rows), "patterns": patterns, "minimum_samples": min_samples,
+            "note": "Compare patterns only within matching cohorts. Observational means are not causal evidence.",
             "best_videos": [{k: r.get(k) for k in ("date", "hook", "hook_pattern", "views", "retention_3s_pct", "topic")}
                             for r in best]}

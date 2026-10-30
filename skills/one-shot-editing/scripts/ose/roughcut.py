@@ -276,6 +276,8 @@ def run_roughcut(project: Project, *, pace="tight", aggressive=False, prefer="la
                  hook_range=None) -> dict:
     project.require()
     tr = read_json(project.transcript)
+    from .provenance import check_source
+    source_hash = check_source(project, tr)
     duration = probe(project.source)["duration"]
     hook = parse_ranges(hook_range)
     if hook_range:
@@ -293,6 +295,7 @@ def run_roughcut(project: Project, *, pace="tight", aggressive=False, prefer="la
         edl["stats"]["segments"] = len(edl["segments"])
         edl["stats"]["cut_duration"] = round(cut_duration(edl["segments"]), 2)
     edl["source"] = str(project.source)
+    edl["source_sha256"] = source_hash
     edl["transcript_sha256"] = transcript_fingerprint(tr)
     edl["transcript_fingerprint_version"] = 1
     write_json(project.edl, edl)

@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from .common import MUSIC_DIR, OseError, log, media_kind, probe, read_json, run, strip_accents, write_json
+from .locking import index_transaction
 
 INDEX = MUSIC_DIR / "index.json"
 
@@ -73,6 +74,7 @@ def _content_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+@index_transaction
 def add(source: str, *, tags=(), vibe="", license="unknown", title=None) -> dict:
     MUSIC_DIR.mkdir(parents=True, exist_ok=True)
     items = load_index()
@@ -119,6 +121,7 @@ def add(source: str, *, tags=(), vibe="", license="unknown", title=None) -> dict
             shutil.rmtree(import_dir, ignore_errors=True)
 
 
+@index_transaction
 def tag(item_id, *, tags=None, moods=None, vibe=None, license=None, title=None) -> dict:
     items = load_index()
     it = find(items, item_id)
@@ -176,19 +179,17 @@ def suggest(query="", *, mood=None, energy=None, min_duration=0, n=5, avoid_over
             for s, it in scored[:n]]
 
 
+@index_transaction
 def mark_used(item_id) -> None:
     items = load_index()
-    try:
-        find(items, item_id)["uses"] = find(items, item_id).get("uses", 0) + 1
-        save_index(items)
-    except OseError:
-        pass
+    find(items, item_id)["uses"] = find(items, item_id).get("uses", 0) + 1
+    save_index(items)
 
 
+@index_transaction
 def remove(item_id, delete_file=False) -> None:
     items = load_index()
     it = find(items, item_id)
+    save_index([i for i in items if i is not it])
     if delete_file:
         Path(it["path"]).unlink(missing_ok=True)
-    save_index([i for i in items if i is not it])
-

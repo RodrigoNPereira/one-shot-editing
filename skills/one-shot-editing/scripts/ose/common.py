@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unicodedata
 from pathlib import Path
 
@@ -43,9 +45,17 @@ def read_json(path, default=None):
 def write_json(path, data) -> Path:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(p)
+    payload = json.dumps(data, indent=2, ensure_ascii=False, allow_nan=False)
+    fd, name = tempfile.mkstemp(prefix=p.name + ".", suffix=".tmp", dir=p.parent)
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        tmp.replace(p)
+    finally:
+        tmp.unlink(missing_ok=True)
     return p
 
 
@@ -89,9 +99,17 @@ def probe(path) -> dict:
             num, _, den = (s.get("avg_frame_rate") or "0/1").partition("/")
             info["fps"] = float(num) / float(den or 1) if float(den or 1) else 0.0
             info["vcodec"] = s.get("codec_name")
+            info["sample_aspect_ratio"] = s.get("sample_aspect_ratio", "1:1")
+            info.update({key: s.get(key) for key in
+                         ("pix_fmt", "color_range", "color_space", "color_transfer", "color_primaries")})
+            info["fps_ratio"] = s.get("avg_frame_rate")
+            info["time_base"] = s.get("time_base")
+            info["nominal_fps_ratio"] = s.get("r_frame_rate")
+            info["video_side_data"] = s.get("side_data_list", [])
         elif s.get("codec_type") == "audio" and "audio" not in info:
             info["audio"] = True
             info["sample_rate"] = int(s.get("sample_rate", 0) or 0)
+            info["channels"] = s.get("channels")
     info.setdefault("audio", False)
     return info
 
@@ -168,7 +186,7 @@ class Project:
     # canonical file locations
     transcript = property(lambda self: self.work / "transcript.json")
     edl = property(lambda self: self.work / "edl.json")
-    cut = property(lambda self: self.work / "cut.mp4")
+    cut = property(lambda self: self.work / "cut.mkv")
     cut_words = property(lambda self: self.work / "cut_words.json")
     plan = property(lambda self: self.work / "plan.json")
     captions_ass = property(lambda self: self.work / "captions.ass")
@@ -226,8 +244,23 @@ def fmt_time(t: float) -> str:
 
 def normalize_plan(plan: dict) -> dict:
     """Accept start+duration or start+end everywhere; store zooms/texts as start/end and b-roll as start/duration."""
+    if not isinstance(plan, dict):
+        raise OseError("plan must be an object")
+    for key in ("zooms", "texts", "broll", "sfx"):
+        if not isinstance(plan.get(key, []), list) or any(not isinstance(item, dict) for item in plan.get(key, [])):
+            raise OseError(f"{key} must be a list of objects")
+
     def span(item):
+        if not isinstance(item, dict):
+            raise OseError("plan entries must be objects")
+        for key in ("start", "end", "duration"):
+            if key in item and (isinstance(item[key], bool) or not isinstance(item[key], (int, float))
+                                or not math.isfinite(item[key])):
+                raise OseError(f"plan item {key} must be a finite number")
         s = float(item.get("start", 0))
+        if "end" in item and "duration" in item and not math.isclose(
+                float(item["end"]) - s, float(item["duration"]), abs_tol=0.001):
+            raise OseError("plan item has inconsistent end and duration")
         if "end" not in item and "duration" in item:
             item["end"] = round(s + float(item["duration"]), 3)
         if "duration" not in item and "end" in item:
@@ -248,7 +281,61 @@ def normalize_plan(plan: dict) -> dict:
 
 
 def load_plan(project) -> dict:
-    return normalize_plan(read_json(project.plan, {}))
+    try:
+        plan = normalize_plan(read_json(project.plan, {}))
+    except (ValueError, TypeError, AttributeError) as error:
+        raise OseError(f"invalid plan: {error}") from error
+    validate_plan(plan)
+    return plan
+
+
+def validate_plan(plan, duration=None, *, assets=False):
+    from jsonschema import Draft202012Validator
+    try:
+        json.dumps(plan, allow_nan=False)
+    except (ValueError, TypeError) as error:
+        raise OseError("plan values must be finite JSON values") from error
+    errors = sorted(Draft202012Validator(read_json(ASSETS / "plan.schema.json")).iter_errors(plan),
+                    key=lambda error: str(list(error.absolute_path)))
+    if errors:
+        error = errors[0]
+        path = ".".join(map(str, error.absolute_path)) or "plan"
+        raise OseError(f"{path}: {error.message}")
+    for key in ("zooms", "texts", "broll"):
+        for index, item in enumerate(plan.get(key, [])):
+            end = item.get("end", item["start"] + item.get("duration", 0))
+            if end <= item["start"]:
+                raise OseError(f"{key}[{index}]: end must be after start")
+            if duration is not None and end > duration + 0.05:
+                raise OseError(f"{key}[{index}]: ends after the cut ({duration:.3f}s)")
+    for index, item in enumerate(plan.get("sfx", [])):
+        if duration is not None and item["at"] >= duration:
+            raise OseError(f"sfx[{index}].at must be before cut end")
+    cta = plan.get("cta", {})
+    if duration is not None and cta.get("start") is not None and cta["start"] >= duration:
+        raise OseError("cta.start must be before cut end")
+    if assets:
+        from . import broll, music, sfx
+        for item in plan.get("broll", []):
+            asset = broll.resolve(item["asset"])
+            if not Path(asset["path"]).is_file():
+                raise OseError(f"missing B-roll: {asset['path']}")
+            if asset["kind"] not in ("image", "video"):
+                raise OseError(f"B-roll {item['asset']} is not an image/video")
+            if asset["kind"] == "video":
+                asset_info = probe(asset["path"])
+                if asset_info.get("color_transfer") in {"smpte2084", "arib-std-b67"}:
+                    raise OseError(f"B-roll {item['asset']} is HDR; provide a color-managed SDR version")
+            if asset["kind"] == "video" and item.get("source_in", 0) + item["duration"] > asset["duration"] + 0.05:
+                raise OseError(f"B-roll {item['asset']}: range exceeds asset duration")
+        if plan.get("music", {}).get("track"):
+            asset = music.resolve(plan["music"]["track"])
+            if not Path(asset["path"]).is_file():
+                raise OseError(f"missing music: {asset['path']}")
+            if plan["music"].get("start_offset", 0) >= probe(asset["path"])["duration"]:
+                raise OseError("music.start_offset must be before track end")
+        for item in plan.get("sfx", []):
+            sfx.resolve(item["asset"])
 
 
 def transcript_fingerprint(transcript) -> str:
@@ -264,6 +351,8 @@ def transcript_fingerprint(transcript) -> str:
 def load_edl(project) -> dict:
     edl = read_json(project.edl)
     fingerprint = edl.get("transcript_sha256")
+    if not fingerprint:
+        raise OseError("EDL has no transcript provenance; adopt/rebuild it after review")
     if fingerprint:
         if edl.get("transcript_fingerprint_version") == 1:
             current = transcript_fingerprint(read_json(project.transcript))
@@ -271,4 +360,16 @@ def load_edl(project) -> dict:
             current = hashlib.sha256(project.transcript.read_bytes()).hexdigest()
         if fingerprint != current:
             raise OseError("transcript changed since this EDL was built; review it and run `ose roughcut` or `ose auto --rebuild-edl`")
+    from .provenance import check_source
+    source = check_source(project)
+    if edl.get("source_sha256") != source:
+        raise OseError("EDL source provenance is missing or stale; rebuild/review the EDL")
+    segments = edl.get("segments")
+    if not segments:
+        raise OseError("EDL contains no kept segments")
+    for segment in segments:
+        if not all(isinstance(segment.get(k), (float, int)) and math.isfinite(segment[k]) for k in ("in", "out")):
+            raise OseError("EDL contains an invalid segment")
+        if not 0 <= segment["in"] < segment["out"]:
+            raise OseError("EDL contains an invalid segment range")
     return edl

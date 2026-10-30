@@ -6,11 +6,21 @@ set -euo pipefail
 
 OSE_HOME="${OSE_HOME:-$HOME/.one-shot-editing}"
 VENV="${OSE_VENV:-$OSE_HOME/venv}"
-FULL=0
-[[ "${1:-}" == "--full" ]] && FULL=1
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 say() { printf '\033[1;36m[ose]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[ose]\033[0m %s\n' "$*" >&2; exit 1; }
+EXTRAS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --full) EXTRAS+=(--extra alignment --extra isolation); shift ;;
+    --extra)
+      [[ $# -ge 2 ]] || die "--extra requires alignment, isolation, semantic or interchange"
+      case "$2" in alignment|isolation|semantic|interchange) EXTRAS+=(--extra "$2"); shift 2 ;;
+        *) die "unknown extra: $2" ;; esac ;;
+    *) die "unknown option: $1" ;;
+  esac
+done
 
 command -v ffmpeg >/dev/null || die "ffmpeg not found. Install it (apt install ffmpeg / brew install ffmpeg) and re-run."
 command -v ffprobe >/dev/null || die "ffprobe not found (ships with ffmpeg)."
@@ -23,20 +33,22 @@ mkdir -p "$OSE_HOME"/{library/music,library/broll/_inbox,cache}
 
 if command -v uv >/dev/null; then
   [[ -x "$VENV/bin/python" ]] || { say "creating venv (python 3.12) at $VENV"; uv venv -q --python 3.12 "$VENV"; }
-  PIP=(uv pip install -q --python "$VENV/bin/python")
+  UV=(uv)
 else
   PY=$(command -v python3.12 || command -v python3.11 || command -v python3.10 || true)
   [[ -n "$PY" ]] || die "Need uv or python 3.10-3.12."
   [[ -x "$VENV/bin/python" ]] || { say "creating venv with $PY"; "$PY" -m venv "$VENV"; }
-  PIP=("$VENV/bin/python" -m pip install -q)
+  [[ -x "$VENV/bin/uv" ]] || "$VENV/bin/python" -m pip install -q "uv==0.12.5"
+  UV=("$VENV/bin/uv")
 fi
 
-say "installing core packages"
-"${PIP[@]}" faster-whisper rapidfuzz yt-dlp scenedetect "opencv-python<5" "opencv-python-headless<5" numpy librosa soundfile
-
-if [[ $FULL == 1 ]]; then
-  say "installing WhisperX + Demucs (this downloads torch, a few GB)"
-  "${PIP[@]}" whisperx demucs
+say "syncing locked packages (optional models can require several GB)"
+if "${UV[@]}" pip show --python "$VENV/bin/python" opencv-python-headless >/dev/null 2>&1; then
+  # Both distributions own cv2; remove both before reinstalling the one locked variant.
+  "${UV[@]}" pip uninstall --python "$VENV/bin/python" opencv-python-headless opencv-python
 fi
+UV_PROJECT_ENVIRONMENT="$VENV" "${UV[@]}" sync --project "$SKILL_DIR" --locked --no-dev "${EXTRAS[@]}"
+cksum < "$SKILL_DIR/uv.lock" > "$VENV/.ose-lock"
+printf '%s\n' "${EXTRAS[*]}" > "$VENV/.ose-extras"
 
 say "done. Run: $(cd "$(dirname "$0")/.." && pwd)/bin/ose doctor"

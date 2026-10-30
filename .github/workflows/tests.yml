@@ -6,21 +6,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.5"
       - name: Ruff
         run: uvx --from ruff==0.14.2 ruff check .
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.5"
       - name: ffmpeg
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          else
+            brew install ffmpeg
+          fi
       - name: toolkit (no whisper model needed - tests use synthetic transcripts)
         run: |
-          uv venv --python 3.12 "$HOME/.one-shot-editing/venv"
-          uv pip install --python "$HOME/.one-shot-editing/venv/bin/python" \
-            rapidfuzz scenedetect "opencv-python<5" "opencv-python-headless<5" numpy librosa soundfile yt-dlp pytest
+          uv sync --project skills/one-shot-editing --locked --python "${{ matrix.python }}" --extra interchange
+          echo "OSE_VENV=$PWD/skills/one-shot-editing/.venv" >> "$GITHUB_ENV"
       - name: shell syntax
         run: for f in install.sh skills/one-shot-editing/scripts/*.sh skills/one-shot-editing/bin/ose; do bash -n "$f"; done
       - name: pytest
-        run: ~/.one-shot-editing/venv/bin/python -m pytest -q tests
+        run: "$OSE_VENV/bin/python -m pytest -q tests"

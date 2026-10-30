@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .common import ASSETS, BROLL_DIR, MUSIC_DIR, OSE_HOME, OseError, Project, fmt_time, load_edl, probe, read_json, which, write_json
+from .common import ASSETS, BROLL_DIR, MUSIC_DIR, OSE_HOME, OseError, Project, fmt_time, load_edl, load_plan, probe, read_json, validate_plan, which, write_json
 
 
 def out(data) -> None:
@@ -23,7 +23,7 @@ def cmd_doctor(a):
     checks = {}
     for b in ("ffmpeg", "ffprobe", "yt-dlp"):
         checks[b] = bool(which(b))
-    for mod in ("faster_whisper", "rapidfuzz", "librosa", "cv2", "scenedetect", "whisperx", "demucs"):
+    for mod in ("faster_whisper", "rapidfuzz", "librosa", "cv2", "jsonschema", "PIL", "scenedetect", "whisperx", "demucs"):
         try:
             __import__(mod)
             checks[mod] = True
@@ -33,7 +33,13 @@ def cmd_doctor(a):
     checks["adb (android capture, optional)"] = bool(which("adb"))
     checks["xcrun (ios capture, macOS only)"] = bool(which("xcrun"))
     checks["fonts"] = (ASSETS / "fonts" / "Montserrat-ExtraBold.ttf").exists()
-    required = ["ffmpeg", "ffprobe", "yt-dlp", "faster_whisper", "rapidfuzz", "librosa", "cv2", "fonts"]
+    from .common import run
+    for kind, capabilities in (("encoders", ["libx264", "ffv1", "alac"]), ("filters", ["ass", "loudnorm"])):
+        available = run(["ffmpeg", "-hide_banner", f"-{kind}"], capture=True).stdout if checks["ffmpeg"] else ""
+        for capability in capabilities:
+            checks[f"ffmpeg:{capability}"] = capability in available.split()
+    required = ["ffmpeg", "ffprobe", "yt-dlp", "faster_whisper", "rapidfuzz", "librosa", "cv2", "jsonschema", "PIL",
+                "fonts", "ffmpeg:libx264", "ffmpeg:ffv1", "ffmpeg:alac", "ffmpeg:ass", "ffmpeg:loudnorm"]
     ok = all(checks[r] for r in required)
     out({"home": str(OSE_HOME), "ok": ok, "checks": checks,
          "hint": "run scripts/setup.sh (add --full for WhisperX + Demucs)"})
@@ -49,6 +55,12 @@ def cmd_init(a):
     for d in (p.raw, p.work, p.out):
         d.mkdir(parents=True, exist_ok=True)
     dest = p.raw / src.name
+    if dest.exists() and dest.resolve() != src and not a.copy:
+        raise OseError(f"project already contains another source named {src.name}; use a new project")
+    if dest.exists() and a.copy:
+        from .provenance import digest
+        if digest(dest) != digest(src):
+            raise OseError(f"project source {src.name} differs; use a new project instead of overwriting")
     if not dest.exists():
         if a.copy:
             shutil.copy2(src, dest)
@@ -60,13 +72,15 @@ def cmd_init(a):
     from .render import ensure_plan
     plan = ensure_plan(p)
     plan["platform"] = a.platform
+    plan["output"] = {"profile": a.quality}
     write_json(p.plan, plan)
     out({"project": str(p.root), "source": str(dest), **p.meta["source_info"]})
 
 
 def cmd_transcribe(a):
     from .transcribe import run_transcribe
-    d = run_transcribe(Project(a.project), language=a.lang, model=a.model, engine=a.engine, keep_fillers=not a.no_fillers)
+    d = run_transcribe(Project(a.project), language=a.lang, model=a.model, engine=a.engine, keep_fillers=not a.no_fillers,
+                      vad=a.vad, batch_size=a.batch_size)
     out({k: d[k] for k in ("engine", "model", "language", "elapsed_s")} | {"words": len(d["words"])})
 
 
@@ -106,13 +120,16 @@ def _set_path(d, dotted, value):
     keys = dotted.split(".")
     for k in keys[:-1]:
         d = d.setdefault(k, {})
+        if not isinstance(d, dict):
+            raise OseError(f"{dotted}: parent must be an object")
     d[keys[-1]] = value
 
 
 def cmd_plan(a):
     p = Project(a.project).require()
     from .render import ensure_plan
-    plan = ensure_plan(p)
+    ensure_plan(p)
+    plan = load_plan(p)
     for kv in a.set or []:
         k, _, v = kv.partition("=")
         try:
@@ -132,6 +149,24 @@ def cmd_plan(a):
         plan[a.clear] = [] if isinstance(plan.get(a.clear), list) else {}
     from .common import normalize_plan
     plan = normalize_plan(plan)
+    plan.setdefault("schema_version", 1)
+    validate_plan(plan)
+    if p.edl.exists():
+        from .provenance import check_plan_revision, edl_revision, has_timed_items
+        if a.accept_timeline or not plan.get("edl_revision"):
+            if not a.accept_timeline and has_timed_items(read_json(p.plan, {})):
+                raise OseError("existing timed plan needs explicit review: use --accept-timeline")
+            plan["edl_revision"] = edl_revision(p)
+        check_plan_revision(p, plan)
+    from .common import cut_duration
+    from .cut import quantize_segments
+    from .quality import settings
+    from fractions import Fraction
+    duration = None
+    if p.edl.exists():
+        config = settings(probe(p.source), plan)
+        duration = cut_duration(quantize_segments(read_json(p.edl)["segments"], float(Fraction(config["fps"]))))
+    validate_plan(plan, duration, assets=True)
     write_json(p.plan, plan)
     out(plan)
 
@@ -215,7 +250,14 @@ def cmd_broll(a):
         out(b.label(a.id, category=a.category, labels=(a.labels or "").split(","), description=a.desc or "",
                     sort=not a.no_sort))
     elif a.bcmd == "search":
-        out(b.search(a.query, kind=a.kind, n=a.n, min_duration=a.min_duration, project=a.project_name))
+        if a.semantic:
+            from .semantic import search
+            out(search(a.query, n=a.n, kind=a.kind, min_duration=a.min_duration, project=a.project_name))
+        else:
+            out(b.search(a.query, kind=a.kind, n=a.n, min_duration=a.min_duration, project=a.project_name))
+    elif a.bcmd == "index-semantic":
+        from .semantic import build_index
+        out(build_index(model=a.model, pretrained=a.pretrained))
     elif a.bcmd == "list":
         out([{k: i.get(k) for k in ("id", "kind", "status", "category", "labels", "duration", "uses")} for i in b.load_index()])
 
@@ -236,7 +278,7 @@ def cmd_perf(a):
         fields = {k: getattr(a, k) for k in h.PERF_FIELDS if hasattr(a, k)}
         out(h.perf_add(**fields))
     else:
-        out(h.perf_summary())
+        out(h.perf_summary(platform=a.platform, language=a.language, min_samples=a.min_samples))
 
 
 def cmd_auto(a):
@@ -268,6 +310,34 @@ def cmd_paths(a):
          "performance_csv": str(OSE_HOME / "performance.csv"), "skill_assets": str(ASSETS)})
 
 
+def cmd_provenance(a):
+    from .provenance import adopt, check_cut
+    p = Project(a.project).require()
+    out(adopt(p) if a.adopt else check_cut(p))
+
+
+def cmd_review(a):
+    from .review import approve, approvals, deletion_reel
+    p = Project(a.project).require()
+    if a.approve:
+        out(approve(p, stage=a.approve, note=a.note or ""))
+    elif a.reel:
+        out(deletion_reel(p, context=a.context))
+    else:
+        out(approvals(p))
+
+
+def cmd_export(a):
+    from .interchange import export_browser, export_otio
+    exporter = export_browser if a.format == "browser" else export_otio
+    out(exporter(Project(a.project).require(), a.out))
+
+
+def cmd_benchmark(a):
+    from .benchmark import evaluate
+    out(evaluate(a.manifest, a.out))
+
+
 # ------------------------------------------------------------------ parser
 
 def build_parser():
@@ -290,12 +360,16 @@ def build_parser():
     s.add_argument("--lang", choices=["en", "pt", "es"], default=None, help="spoken language (default: auto)")
     s.add_argument("--platform", choices=["tiktok", "reels", "shorts"], default="tiktok")
     s.add_argument("--copy", action="store_true", help="copy the video instead of symlinking")
+    s.add_argument("--quality", choices=["source", "social"], default="source",
+                   help="source: native CFR/detail and lossless final; social: explicit 1080x1920/30fps delivery conversion")
 
     s = proj("transcribe", cmd_transcribe, "word-level transcription")
     s.add_argument("--lang", default=None)
     s.add_argument("--model", default="small", help="tiny|base|small|medium|large-v3|turbo")
     s.add_argument("--engine", default="auto", choices=["auto", "faster-whisper", "whisperx"])
     s.add_argument("--no-fillers", action="store_true", help="don't prompt Whisper to keep um/uh")
+    s.add_argument("--vad", action="store_true", help="opt-in speech activity filtering; evaluate filler preservation")
+    s.add_argument("--batch-size", type=int)
 
     s = proj("text", cmd_text, "print the transcript as timestamped lines")
     s.add_argument("--cut", action="store_true", help="use the cut timeline (after `ose cut`)")
@@ -325,6 +399,22 @@ def build_parser():
     s.add_argument("--add-text", action="append", help='{"text":"...","start":1,"end":2.5,"style":"Title|Card"}')
     s.add_argument("--add-sfx", action="append", help='{"asset":"/path/whoosh.mp3","at":3.2,"volume_db":-8}')
     s.add_argument("--clear", choices=["broll", "zooms", "texts", "sfx", "music", "hook", "cta"])
+    s.add_argument("--accept-timeline", action="store_true", help="confirm timed placements were reviewed against the current EDL")
+
+    s = proj("provenance", cmd_provenance, "check artifacts or explicitly adopt legacy/manual transcripts")
+    s.add_argument("--adopt", action="store_true", help="assert that the transcript/EDL belongs to this source after manual review")
+    s = proj("review", cmd_review, "deletion-review reel and revision-bound approval ledger")
+    s.add_argument("--reel", action="store_true")
+    s.add_argument("--context", type=float, default=0.5)
+    s.add_argument("--approve", choices=["cut", "final"])
+    s.add_argument("--note", help="required approval rationale")
+    s = proj("export", cmd_export, "export source cuts to OpenTimelineIO (effects remain metadata)")
+    s.add_argument("--out")
+    s.add_argument("--format", choices=["otio", "browser"], default="otio")
+    s = sp.add_parser("benchmark", help="evaluate an annotated, consented local real-media corpus")
+    s.add_argument("manifest")
+    s.add_argument("--out", required=True)
+    s.set_defaults(fn=cmd_benchmark)
 
     s = proj("pacing", cmd_pacing, "check (and fix) that something changes every N seconds")
     s.add_argument("--max", type=float, default=3.0)
@@ -390,6 +480,9 @@ def build_parser():
     s.add_argument("--source", default="user", choices=["user", "web", "app", "screen"])
     s.add_argument("--project-name", dest="project_name")
     s.add_argument("--copy", action="store_true", help="copy instead of move when ingesting the inbox")
+    s = b.add_parser("index-semantic", help="download chosen model and index library thumbnails locally")
+    s.add_argument("--model", default="ViT-B-32")
+    s.add_argument("--pretrained", default="laion2b_s34b_b79k")
     b.add_parser("pending", help="unlabeled items with thumbnails to look at")
     s = b.add_parser("label", help="label + sort an item into a category folder")
     s.add_argument("id")
@@ -403,6 +496,7 @@ def build_parser():
     s.add_argument("--n", type=int, default=8)
     s.add_argument("--min-duration", type=float, default=0)
     s.add_argument("--project-name", dest="project_name")
+    s.add_argument("--semantic", action="store_true", help="use an explicitly built local image/text embedding index")
     b.add_parser("list")
     sp.choices["broll"].set_defaults(fn=cmd_broll)
 
@@ -424,7 +518,10 @@ def build_parser():
     from .hooks import PERF_FIELDS
     for f in PERF_FIELDS:
         s.add_argument(f"--{f.replace('_', '-')}", dest=f)
-    pf.add_parser("summary")
+    s = pf.add_parser("summary")
+    s.add_argument("--platform")
+    s.add_argument("--language")
+    s.add_argument("--min-samples", type=int, default=5)
     sp.choices["perf"].set_defaults(fn=cmd_perf)
     return ap
 
@@ -432,8 +529,13 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        args.fn(args)
-    except OseError as e:
+        if hasattr(args, "project") and args.project:
+            from .locking import locked
+            with locked(Project(args.project).meta_path):
+                args.fn(args)
+        else:
+            args.fn(args)
+    except (OseError, json.JSONDecodeError) as e:
         print(f"[ose] error: {e}", file=sys.stderr)
         sys.exit(1)
 

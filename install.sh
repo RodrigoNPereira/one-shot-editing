@@ -9,7 +9,7 @@
 set -euo pipefail
 
 NAME=one-shot-editing
-SRC="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)/skills/$NAME"
+SRC="$(cd "$(dirname "$0")" && pwd)/skills/$NAME"
 CANON="$HOME/.agents/skills/$NAME"
 AGENT_DIRS=("$HOME/.claude/skills" "$HOME/.copilot/skills" "$HOME/.codex/skills")
 BIN="$HOME/.local/bin/ose"
@@ -24,7 +24,11 @@ say() { printf '\033[1;36m[install]\033[0m %s\n' "$*"; }
 
 remove_entry() {  # only remove what we own: links to our skill, or a copy carrying our SKILL.md name
   local p="$1"
-  if [[ -L "$p" ]]; then rm "$p"
+  if [[ -L "$p" ]]; then
+    local target
+    target="$(readlink "$p")"
+    if [[ "$target" == "$SRC" || "$target" == "$CANON" || "$target" == "$CANON/bin/ose" ]]; then rm "$p"
+    else echo "refusing to touch $p (link not ours)" >&2; return 1; fi
   elif [[ -d "$p" ]] && grep -q "^name: $NAME$" "$p/SKILL.md" 2>/dev/null; then rm -rf "$p"
   elif [[ -e "$p" ]]; then echo "refusing to touch $p (not ours)" >&2; return 1
   fi
@@ -33,14 +37,17 @@ remove_entry() {  # only remove what we own: links to our skill, or a copy carry
 if [[ $UNINSTALL == 1 ]]; then
   for d in "${AGENT_DIRS[@]}"; do remove_entry "$d/$NAME" || true; done
   remove_entry "$CANON" || true
-  [[ -L "$BIN" ]] && rm "$BIN"
+  remove_entry "$BIN"
   say "uninstalled (libraries in ~/.one-shot-editing kept)"; exit 0
 fi
 
 [[ -f "$SRC/SKILL.md" ]] || { echo "skill not found at $SRC" >&2; exit 1; }
 mkdir -p "$(dirname "$CANON")"
 remove_entry "$CANON"
-if [[ $COPY == 1 ]]; then cp -R "$SRC" "$CANON"; say "copied skill -> $CANON"
+if [[ $COPY == 1 ]]; then
+  mkdir -p "$CANON"
+  tar -C "$SRC" --exclude='.venv' --exclude='__pycache__' -cf - . | tar -C "$CANON" -xf -
+  say "copied skill -> $CANON"
 else ln -s "$SRC" "$CANON"; say "linked $CANON -> $SRC"; fi
 
 for d in "${AGENT_DIRS[@]}"; do
@@ -49,7 +56,8 @@ for d in "${AGENT_DIRS[@]}"; do
 done
 
 mkdir -p "$(dirname "$BIN")"
-ln -sf "$CANON/bin/ose" "$BIN"
+remove_entry "$BIN"
+ln -s "$CANON/bin/ose" "$BIN"
 say "ose -> $BIN$([[ ":$PATH:" == *":$HOME/.local/bin:"* ]] || echo '  (add ~/.local/bin to PATH)')"
 
 if [[ $SETUP == 1 ]]; then bash "$CANON/scripts/setup.sh" $FULL; "$BIN" doctor; fi

@@ -62,7 +62,7 @@ third-party implementation was imported.
   B-roll sources remain until each asset is indexed; failed imports retain their source and earlier successes.
   Existing IDs and paths remain usable. Failure-injection tests cover processing and index-write errors.
 
-### Deferred until measured
+### Original deferred items (2026-10-27; superseded where noted below)
 
 - [Auto-Editor two-pass normalization](https://auto-editor.com/docs/anorm): evaluate measured two-pass
   normalization of the complete voice/music/SFX mix. Current rendering retains FFmpeg dynamic loudnorm and
@@ -84,3 +84,22 @@ third-party implementation was imported.
 The researched repositories identify Auto-Editor as Unlicense, stable-ts and ClipsAI as MIT, and WhisperX as
 BSD-2-Clause. Recheck the exact revision before reusing implementation code. Model weights, dependencies and
 distributed binaries can have separate terms; these repository licenses do not grant music or footage rights.
+
+## Implementation follow-through (2026-10-30)
+
+- Locked dependencies and one OpenCV variant; Linux/macOS, Python 3.10/3.12 CI matrix.
+- Versioned JSON plan schema plus timing/asset validation; source, cut, plan and render provenance.
+- Source-quality default: native-detail SDR/CFR, lossless FFV1 intermediates and QP-0 final H.264. Social delivery
+  is explicit. HDR/unsupported sources are blocked, not silently downgraded.
+- Revision-bound approvals and deletion-review reels; consent-aware real-media evaluation harness.
+- Smoothed Haar-based crop trajectories and manual/static overrides. MediaPipe remains a possible benchmarked
+  replacement, not a bundled model or a claimed improvement without evidence.
+- Rendered-glyph safe-zone/collision sampling, face-overlap warnings and dated platform assumptions.
+- Serialized JSON library transactions, unique atomic writes, and rollback-safe relabeling.
+- Measured two-pass final audio; optional OTIO export, local OpenCLIP retrieval and cohort-aware analytics.
+
+Remaining limits: no bundled consented real-person corpus, no empirical retention claims, no automatic
+plan-timestamp rebasing, no active-speaker model, and no exhaustive visual correctness certification.
+Process interruption can leave orphan import/relabel files. Locks and commit ordering are not a transactional
+filesystem or a substitute for backups against power loss, filesystem corruption or hardware failure.
+See [evaluation.md](evaluation.md) for experiments and [plan-schema.md](plan-schema.md) for migration/quality.

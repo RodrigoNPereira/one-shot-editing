@@ -17,13 +17,13 @@ Shorts. It works in one pass, and you approve the creative calls.
 |---|---|---|
 | 1 | **Hook** | Picks from a bilingual library of 90 proven templates (15 patterns), ranked by *your* past performance |
 | 2 | **Rough cut** | Word-level timestamps (faster-whisper / WhisperX); cuts fillers (um, éé, hã…), stutters, false starts, dead air; detects **retakes** and keeps the best one; optional cold open |
-| 3 | **Reframe** | 16:9 → 9:16 with face tracking (or blur-fill); frame-exact segments, no A/V drift |
+| 3 | **Reframe** | 16:9 → 9:16 with smoothed time-varying face crops, static/manual overrides or blur-fill; frame-exact segments |
 | 4 | **Captions** | 2–3 words at a time, active-word highlight, 4 styles, platform safe zones |
 | 5 | **Music** | Personal library: paste a link (yt-dlp) or a file, auto BPM/energy/mood, tag by vibe; suggestions by topic; ducked under the voice; licence tracking |
 | 6 | **B-roll** | Drop files in an inbox; the agent looks at thumbnails, labels and files them; text search; full-screen or picture-in-picture; web captures (agent-browser) and **optional app footage** (Android emulator / iOS Simulator / your recordings) |
 | 7 | **Pacing** | A visual change at least every ~3 s: hard cuts, punch/smooth zooms, on-screen text, SFX |
 | 8 | **CTA** | Goal-matched call-to-action templates (EN/PT-BR) and an end card |
-| + | **Finish** | Voice cleanup, −14 LUFS loudness, QA report (loudness, black frames, dead air, hook speed, pacing, captions, safe zones, music licence), contact sheet, cover image, performance log that feeds hook selection |
+| + | **Finish** | Optional voice cleanup, measured two-pass loudness, rendered-overlay QA, contact sheet, cover, revision-bound approvals and cohort-aware performance summaries |
 
 Rendering is **ffmpeg** by default (fast, native-looking). For designed output (kinetic type, embedded captions,
 motion graphics) the skill hands the cut to **[HyperFrames](https://github.com/heygen-com/hyperframes)**.
@@ -67,8 +67,7 @@ On clients without `codex plugin add`, install from the plugin browser after reg
 Marketplaces** to add this repository's Git URL once published. You can also add its `OWNER/REPO` to
 the `chat.plugins.marketplaces` setting. This requires a VS Code version with Agent Plugins support.
 
-After publishing to GitHub, replace `"$PWD"` in the marketplace-add commands with the actual `OWNER/REPO`.
-There is no configured remote in this checkout, so no hosted repository address is assumed here.
+For hosted installation, replace `"$PWD"` with `RodrigoNPereira/one-shot-editing`.
 Restart your agent session after installation. Ask it to use `one-shot-editing`; in Claude Code, the
 explicit command is `/one-shot-editing:one-shot-editing`.
 
@@ -85,12 +84,36 @@ From this checkout:
 ./install.sh --full     # + WhisperX (tighter word timing) and Demucs (voice isolation); large torch download
 ```
 For other compatible agents, use the [skills CLI](https://skills.sh): `npx skills add . -g` from this
-checkout, or `npx skills add OWNER/REPO -g` after publishing. Select the target agents when prompted.
+checkout, or `npx skills add RodrigoNPereira/one-shot-editing -g`. Select the target agents when prompted.
 With skill-only installation, invoke `bin/ose` from the installed skill directory; the Python toolkit
 installs itself on first run.
 
 The first transcription downloads a Whisper model (~0.5 GB). Libraries live in `~/.one-shot-editing/`
 (`OSE_HOME`).
+
+Dependencies live in the skill's `pyproject.toml` and `uv.lock`, including optional `alignment`, `isolation`,
+`interchange` and `semantic` extras. Install extras with `bash skills/one-shot-editing/scripts/setup.sh --extra interchange`
+(repeat `--extra` to combine). Setup synchronizes a dedicated environment exactly; specify all wanted extras.
+The wrapper refreshes its managed environment when the lock changes, retaining the last selected extras.
+An explicit `OSE_VENV` is caller-managed. Only one OpenCV distribution is installed.
+
+## Source-quality contract
+
+**New projects default to `--quality source`.** Supported SDR, constant-frame-rate YUV footage retains its
+native frame rate, bit depth, chroma format and color tags. Portrait footage retains its dimensions; landscape
+footage uses a native-resolution portrait crop rather than automatically reducing 4K to 1080p. Intermediates
+are lossless FFV1/float-PCM (`work/cut.mkv`); final MP4 uses lossless H.264 (QP 0) and ALAC. These files can be
+large and are archival/editing masters, not universally compatible upload files.
+
+Cropping, zooming, blur-fill, captions and compositing intentionally change pixels. Lossless encoding prevents
+additional codec generation loss; it cannot recover cropped detail or make a zoom sharper than its source.
+Unchanged-frame regression checks compare decoded source, intermediate and final pixels, including 10-bit
+59.94 fps. This is not a quality guarantee for every creative treatment.
+
+Use `ose init proj --video raw.mp4 --quality social` for an **explicit** 1080×1920/30 fps, 8-bit H.264/AAC
+delivery conversion. Existing projects can set `output.profile=social`, then rebuild the cut and review timed
+placements. HDR/Dolby Vision are blocked pending a color-managed workflow; source-quality also rejects
+unsupported pixel formats, non-square pixels and ambiguous/VFR rates rather than silently downgrading them.
 
 ## Use it
 
@@ -102,17 +125,33 @@ Or drive the CLI yourself:
 ose init proj --video raw.mp4
 ose transcribe proj && ose text proj
 ose roughcut proj --report            # then --keep r3 / --cut 12.4-15 / --hook-range 41-45
-ose cut proj                          # 1080x1920 rough cut
+ose cut proj                          # native-resolution, lossless rough cut
+ose review proj --reel                # deleted footage with context; red border marks deletions
+ose review proj --approve cut --note "Reviewed deletions and framing"
 ose music add "https://…" --tags "lofi,focus" --vibe "calm night coding" --license royalty-free
 ose plan proj --set hook.text="Nobody tells you this" --set cta.text="Follow for part 2" --set music.track=<id>
 ose broll ingest && ose broll pending # label with: ose broll label <id> --category ui --labels "…"
 ose plan proj --add-broll '{"asset":"<id>","start":4.2,"duration":2}'
 ose pacing proj --apply
 ose render proj && ose qa proj && ose cover proj --at 3 --text "TITLE"
+ose review proj --approve final --note "Watched this exact render and checked audio/captions"
 ose auto proj                         # reuse transcript/reviewed EDL, then cut, pacing, render and QA
 ose auto proj --rebuild-edl            # deliberately replace cuts; recheck timed plan items afterward
 ```
 Full command list: `ose -h` and `ose <command> -h`.
+
+Optional tools:
+```bash
+ose export proj                      # .otio source cuts/audio; effects are metadata only
+ose export proj --format browser     # explicit 8-bit H.264/AAC cut for HyperFrames
+ose broll index-semantic             # optional local OpenCLIP model download and thumbnail index
+ose broll search "a rainy street" --semantic
+ose perf summary --platform shorts --language pt --min-samples 5
+ose benchmark corpus.json --out results.json
+```
+Semantic search does not upload media. Model language coverage varies; evaluate Portuguese separately.
+See [evaluation.md](skills/one-shot-editing/references/evaluation.md) for the consented real-media corpus format.
+No real-person benchmark footage or empirical retention claims are bundled.
 
 ## Editing safeguards
 
@@ -121,12 +160,20 @@ remain for review; the detector does not prove semantic equivalence. Portuguese 
 English filler. Invalid timestamps/ranges and unaligned WhisperX words stop processing instead of silently
 discarding speech. Cold-open captions follow output order, and fast caption chunks do not overlap.
 
-`auto` preserves existing EDLs and caption choices. New EDLs fingerprint their transcript, and final renders
-promote draft-quality cuts automatically. Changing the source recording still requires retranscription;
-changing the cut requires rechecking timed placements. `qa` and `auto` return status 1 on QA errors.
+`auto` preserves EDLs and caption choices. Source bytes, transcripts, EDLs, cut files, render assets and plans
+are fingerprinted; stale dependencies stop rendering/QA. Final rendering promotes draft-quality cuts.
+Changing the cut requires reviewing timed placements and `ose plan proj --accept-timeline`.
+`qa` and `auto` return status 1 on technical errors; editorial approval is reported separately.
+
+Version 2 requires rebuilding old `cut.mp4` intermediates. Re-transcribe legacy projects, or explicitly assert
+the current source/transcript relationship with `ose provenance proj --adopt` **after reviewing it**.
+Adoption does not establish that the speech or old timestamps are correct.
 
 Music/B-roll imports use content deduplication and isolated storage so same-named files do not overwrite
 earlier assets. Failed B-roll imports preserve their source and previously indexed successes.
+Whole-index transactions use Unix advisory locks; atomic JSON writes have unique temporary files.
+Relabeling copies before indexing and removes the old file only after commit. Hard termination can still
+leave unindexed duplicate files; it must not invalidate previously indexed media.
 
 See the [engineering comparison and remaining limits](skills/one-shot-editing/references/oss-resources.md)
 for the Auto-Editor, stable-ts, WhisperX and ClipsAI ideas used in this pass. The pipeline has regression and
@@ -163,9 +210,11 @@ Rules and Python compatibility are configured in [ruff.toml](ruff.toml). Ruff ru
 CI job on pushes and pull requests. Formatting is not enforced.
 
 ```bash
-~/.one-shot-editing/venv/bin/python -m pip install pytest   # or: uv pip install --python ~/.one-shot-editing/venv/bin/python pytest
-~/.one-shot-editing/venv/bin/python -m pytest -q tests
+uv sync --project skills/one-shot-editing --locked --extra interchange
+OSE_VENV="$PWD/skills/one-shot-editing/.venv" skills/one-shot-editing/.venv/bin/python -m pytest -q tests
 ```
+CI runs the locked environment on Linux/macOS and Python 3.10/3.12. To deliberately update dependencies,
+edit the skill's `pyproject.toml` and run `uv lock --project skills/one-shot-editing`; commit both files.
 
 Packaging-only checks (no model downloads or media processing):
 ```bash

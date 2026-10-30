@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import re
+from fractions import Fraction
 from pathlib import Path
 
 from . import music as music_lib
 from .captions import STYLES
 from .common import FPS, H, W, OseError, Project, load_plan, ffmpeg, probe, read_json, run, write_json
+from .provenance import check_cut, check_plan_revision, digest, render_assets, revision
 from .pacing import analyse as pacing_analyse
-from .render import PLATFORMS
+from .render import PLATFORMS, PLATFORM_SOURCES
 
 
 def measure(path) -> dict:
@@ -47,24 +49,49 @@ def run_qa(project: Project, *, target=None) -> dict:
     pf = PLATFORMS.get(platform, PLATFORMS["tiktok"])
     info = probe(path)
     checks = []
+    rendered = read_json(path.with_suffix(path.suffix + ".provenance.json"), {})
 
     def check(name, ok, detail, level="error"):
         checks.append({"check": name, "status": "pass" if ok else level, "detail": detail})
 
+    try:
+        check_cut(project)
+        current = check_plan_revision(project, plan)
+        valid = (rendered.get("file_sha256") == digest(path) and
+                 rendered.get("cut_sha256") == digest(project.cut) and
+                 rendered.get("plan_sha256") == revision(plan) and rendered.get("edl_revision") == current and
+                 rendered.get("assets") == render_assets(plan))
+        if rendered.get("captions"):
+            valid = valid and rendered.get("ass_sha256") == digest(project.captions_ass)
+        check("provenance", valid, "Output must match current source, cut, plan and file bytes")
+    except (OseError, FileNotFoundError) as error:
+        check("provenance", False, str(error))
     try:
         m = measure(path)
     except OseError as error:
         m = None
         check("measurements", False, str(error))
 
-    check("resolution", (info.get("width"), info.get("height")) == (W, H), f"{info.get('width')}x{info.get('height')}")
-    check("fps", abs(info.get("fps", 0) - FPS) < 0.5, f"{info.get('fps', 0):.2f}")
+    config = rendered.get("quality", {"width": W, "height": H, "fps": str(FPS)})
+    check("resolution", (info.get("width"), info.get("height")) == (config["width"], config["height"]),
+          f"{info.get('width')}x{info.get('height')} ({config.get('profile', 'legacy')} profile)")
+    check("fps", abs(info.get("fps", 0) - float(Fraction(config["fps"]))) < 0.01, f"{info.get('fps', 0):.4f}")
+    if config.get("profile") == "source":
+        check("pixel_format", info.get("pix_fmt") == config["pix_fmt"], f"{info.get('pix_fmt')} vs {config['pix_fmt']}")
+        check("color_metadata", all(info.get(key) == value for key, value in config.get("color", {}).items()),
+              f"expected {config.get('color', {})}")
+        check("quality_profile", not rendered.get("draft", True),
+              "Source profile uses lossless encoding of the edited image; crop/zoom/overlays alter source pixels", "warn")
+    else:
+        check("quality_profile", False, "Social delivery explicitly resizes/re-encodes; not a source-quality master", "warn")
     check("audio", info["audio"], "audio stream present" if info["audio"] else "no audio")
     check("duration", info["duration"] <= pf["max_s"], f"{info['duration']:.1f}s (max {pf['max_s']}s on {platform})")
-    check("duration_sweet_spot", 12 <= info["duration"] <= 75, f"{info['duration']:.1f}s (shorts retain best ~15-60s)", "warn")
+    check("duration_sweet_spot", 12 <= info["duration"] <= 75, f"{info['duration']:.1f}s (editorial review heuristic, not retention evidence)", "warn")
     if m is not None:
-        check("loudness", m["lufs"] is not None and abs(m["lufs"] - pf["lufs"]) <= 1.5,
-              f"{m['lufs']} LUFS (target {pf['lufs']})", "warn")
+        target_lufs = plan.get("audio", {}).get("lufs", pf["lufs"])
+        if plan.get("audio", {}).get("normalization") != "off":
+            check("loudness", m["lufs"] is not None and abs(m["lufs"] - target_lufs) <= 1.5,
+                  f"{m['lufs']} LUFS (target {target_lufs})", "warn")
         check("true_peak", m["true_peak_db"] is not None and m["true_peak_db"] <= -0.5,
               f"{m['true_peak_db']} dBFS", "warn")
         check("black_frames", not m["black_segments"], f"{m['black_segments']}" if m["black_segments"] else "none")
@@ -92,7 +119,7 @@ def run_qa(project: Project, *, target=None) -> dict:
         check("retake_review", not pending, f"{len(pending)} potentially meaning-changing take pairs preserved; review edl.json", "warn")
     except (OseError, ValueError, KeyError, TypeError) as error:
         check("pacing", False, f"Cannot check EDL: {error}")
-    caps = read_json(project.work / "captions.json", [])
+    caps = read_json(project.work / "captions.json", []) if rendered.get("captions", True) else []
     if caps:
         long_ = [c["text"] for c in caps if len(c["text"]) > 24]
         short = [c["text"] for c in caps if c["end"] - c["start"] < 0.18]
@@ -101,6 +128,22 @@ def run_qa(project: Project, *, target=None) -> dict:
         style = STYLES.get(plan.get("captions", {}).get("style", "bold-pop"), STYLES["bold-pop"])
         check("caption_safe_zone", style["margin_v"] >= pf["safe"]["bottom"],
               f"caption bottom margin {style['margin_v']}px vs {platform} UI {pf['safe']['bottom']}px")
+    layout = None
+    if rendered.get("captions") and project.captions_ass.exists():
+        from .visual import inspect_overlays
+        try:
+            layout = inspect_overlays(project, path, pf["safe"])
+            check("rendered_safe_zones", not layout["outside_safe_zone"], str(layout["outside_safe_zone"]))
+            check("overlay_collisions", not layout["overlay_collisions"], str(layout["overlay_collisions"]), "warn")
+            check("face_occlusion", not layout["face_overlaps"], str(layout["face_overlaps"]), "warn")
+        except OseError as error:
+            check("visual_measurement", False, str(error))
+    from .review import approved
+    try:
+        check("cut_approval", approved(project, "cut"), "Revision-bound editorial cut approval", "warn")
+        check("final_approval", approved(project, "final", path), "Human review of this exact output", "warn")
+    except (OseError, KeyError) as error:
+        check("editorial_approval", False, str(error), "warn")
     if not (plan.get("hook") or {}).get("text"):
         check("hook_defined", False, "plan.hook.text is empty: pick a hook (references/hooks.md)", "warn")
     if not (plan.get("cta") or {}).get("text"):
@@ -118,9 +161,13 @@ def run_qa(project: Project, *, target=None) -> dict:
                   f"license={lic}" + ("" if lic in ("royalty-free", "owned") else
                   ": for trending/copyrighted songs, publish without music and add the track from the platform's "
                   "in-app sound library (keeps the trend + avoids muting/claims)"), "warn")
+        if platform == "shorts" and info["duration"] > 60:
+            check("shorts_music_claim", False,
+                  "Shorts over 60s with active Content ID claims are blocked; verify rights/claims independently", "warn")
 
     sheet = contact_sheet(path, project.out / "contact_sheet.jpg")
     result = {"file": str(path), "duration": round(info["duration"], 2), "measure": m, "checks": checks,
+              "visual_layout": layout, "platform_sources": PLATFORM_SOURCES,
               "contact_sheet": sheet,
               "errors": sum(c["status"] == "error" for c in checks), "warnings": sum(c["status"] == "warn" for c in checks)}
     write_json(project.out / "qa.json", result)
