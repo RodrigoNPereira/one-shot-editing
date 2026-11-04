@@ -42,6 +42,14 @@ and asset availability.
 ```
 
 ## CLI helpers
+Zoom semantics: `punch` switches scale instantly; `slow` pushes linearly and resets at its end.
+`smooth` uses cubic easing in (up to 0.3 s) and out (up to 0.2 s), returning to the base scale within
+the span. Each ramp is capped at half the span for short effects. Existing smooth zooms therefore have
+a different exit when rerendered; their timestamps and the cut duration do not change.
+
+For designed footage-with-overlays, keep motion choreography and sound transient offsets in the
+storyboard/compositor, not unknown plan keys. See [footage-overlays.md](footage-overlays.md).
+
 ```bash
 ose plan proj --set hook.text="..." --set music.volume_db=-20 --set captions.style=impact
 ose plan proj --set music={}                              # values are parsed as JSON when possible

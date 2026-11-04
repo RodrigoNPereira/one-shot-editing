@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -95,6 +97,25 @@ def test_zoom_expr():
     assert zoom_expr([]) == "1"
     e = zoom_expr([{"start": 1, "end": 2, "scale": 1.2, "style": "punch"}])
     assert e.startswith("1+") and "between(t,1.000,2.000)" in e
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+@pytest.mark.parametrize("duration", [0.04, 0.2, 2.0])
+def test_smooth_zoom_returns_to_base_without_a_jump(duration):
+    start, end = 0.1, 0.1 + duration
+    expression = zoom_expr([{"start": start, "end": end, "scale": 1.2, "style": "smooth"}])
+    luminance = expression.replace("t", "T")
+    result = subprocess.run([
+        "ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"color=s=16x16:r=100:d={end + 0.1}",
+        "-vf", f"format=yuv444p,geq=lum='({luminance}-1)*200':cb=128:cr=128",
+        "-threads", "1", "-f", "rawvideo", "-pix_fmt", "yuv444p", "pipe:1",
+    ], capture_output=True, check=True)
+    samples = result.stdout[::16 * 16 * 3]
+    first, last = round(start * 100), round(end * 100)
+    assert max(samples[:first + 1]) <= 1
+    assert max(samples[last:]) <= 1
+    assert samples[round((start + end) / 2 * 100)] == pytest.approx(40, abs=1)
+    assert samples[last - 1] <= (20 if duration == 0.04 else 2)
 
 
 @pytest.mark.parametrize("missing", ["start", "end", "all-words", "missing-words"])

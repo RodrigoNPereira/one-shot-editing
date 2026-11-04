@@ -37,8 +37,12 @@ def zoom_expr(zooms):
             terms.append(f"{s}*between(t,{a:.3f},{b:.3f})")
         elif style == "slow":
             terms.append(f"{s}*between(t,{a:.3f},{b:.3f})*(t-{a:.3f})/{max(b - a, 0.01):.3f}")
-        else:  # smooth: ease in over 0.3s, hold, hard cut out
-            terms.append(f"{s}*between(t,{a:.3f},{b:.3f})*min(1,(t-{a:.3f})/0.3)")
+        else:
+            fade_in = min(0.3, (b - a) / 2)
+            fade_out = min(0.2, (b - a) / 2)
+            rise = f"clip((t-{a:.6f})/{fade_in:.9f},0,1)"
+            fall = f"clip(({b:.6f}-t)/{fade_out:.9f},0,1)"
+            terms.append(f"{s}*({rise})^2*(3-2*({rise}))*({fall})^2*(3-2*({fall}))")
     return "1+" + "+".join(terms) if terms else "1"
 
 

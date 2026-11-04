@@ -8,7 +8,8 @@ description: >-
   Use when the user says "edit this video", "make a TikTok/Reel/Short from this", "cut my talking head", "remove
   the ums/pauses", "add captions and music", "edita esse vídeo", "faz um corte pro TikTok", "tira as pausas",
   "legenda esse vídeo", or drops a raw recording and wants a post-ready short. Also for managing the music/B-roll
-  libraries, picking a hook or logging video performance.
+  libraries, picking a hook or logging video performance. Also use for footage with animated overlays,
+  motion-design reference matching, "video de fundo com animacoes sobrepostas" and sound-design review.
 ---
 
 # one-shot-editing
@@ -40,14 +41,16 @@ in their language and write on-screen text (hook, CTA, captions) in the video's 
 | Route | When | How |
 |---|---|---|
 | **ffmpeg (default)** | Normal talking-head shorts; speed matters; batch editing | `ose render` (everything below) |
-| **HyperFrames** | The user wants *designed* output: kinetic typography, branded animated cards, captions embedded behind the subject, motion graphics, explainer inserts | Cut with `ose`, run `export --format browser`, then hand `out/browser-cut.mp4` + `work/cut_words.json` to HyperFrames — see [references/hyperframes-route.md](references/hyperframes-route.md) |
+| **HyperFrames** | Footage as the background with animated overlays; reference-led motion design, kinetic typography, embedded captions, animated cards or explainers | Cut with `ose`, approve a storyboard and pilot, then compose the whole video in HyperFrames — see [references/hyperframes-route.md](references/hyperframes-route.md) |
 
 Mixing is fine: render the short with ffmpeg and build one or two designed inserts (title card, animated stat) in
 HyperFrames, then drop the rendered inserts in as B-roll.
+For footage-with-overlays briefs, inserts alone are not the requested style: keep the presenter as the base
+and use [references/footage-overlays.md](references/footage-overlays.md). Do not treat `ose auto` as that route.
 
 ## Workflow
 
-Work in a project folder next to the raw video (or wherever the user wants). **Stop for approval at the three
+Work in a project folder next to the raw video (or wherever the user wants). **Stop for approval at the
 checkpoints (◆)** unless the user said "just do it" / "one shot" / "faz tudo" — then run straight through and
 show the result plus the QA report.
 
@@ -56,6 +59,10 @@ show the result plus the QA report.
 - Learn: topic, target platform (default `tiktok`), target length, tone, what the CTA should drive (follow, comment,
   link in bio, part 2…), and whether there's an app/site/repo to show.
 - Inspect the source and listen to speech before deciding how tightly to cut. Preserve the original recording.
+- Choose the rendering route now. For reference-led overlays, identify the primary reference, inspect its
+  frames and audio, and separate content lessons from visual style. Preserve available reference downloads
+  locally; never depend on the ignored repository-root `references/` being installed with this skill.
+  If the user's source or previous output is missing, request it; do not substitute a reference creator's footage.
 - **Preserve source quality.** The default `source` profile keeps supported SDR/CFR native resolution (or
   native-resolution portrait crop), FPS, bit depth, chroma and color tags, with lossless intermediates and final
   video encoding. Do not silently downgrade 4K/60 fps/10-bit footage. Crop/zoom/compositing still change pixels.
@@ -115,6 +122,17 @@ $OSE cut proj [--reframe face|center|blur|fill]   # renders lossless work/cut.mk
   `framing.tracking=static` retains the old median-per-segment crop; `framing.center=0.4` sets a manual center.
   Haar detection is a heuristic, not active-speaker tracking: inspect profile views, misses and multiple faces.
 - Show the user the cut length and the transcript of the cut (`$OSE text proj --cut`).
+- Review every cut with about 0.5 s of context on each side. Record the timestamp and whether the problem
+  is pose/framing, a clipped phoneme, ambience or a zoom reset. The cut's short audio fades prevent clicks;
+  they do not guarantee continuity. Keep good hard cuts; repair bad ones before decorating them.
+
+### 2a. Designed overlays: storyboard and pilot ◆
+Only for the HyperFrames route: follow [references/footage-overlays.md](references/footage-overlays.md).
+Write the project's style sheet and storyboard after the cut is locked, with exact cut-timeline beats,
+overlay purpose, real asset, entrance/hold/exit, cut treatment and sound cue. Approve a 10–15 s pilot
+before extending to the whole video; in one-shot mode inspect it and record the decision without waiting.
+Do not render ASS captions first. Use steps 3–7 below for editorial decisions, then follow the HyperFrames
+handoff instead of `ose render`/`auto`. External output requires the compositor's own review evidence.
 
 ### 3. Captions
 ```bash
@@ -122,7 +140,7 @@ $OSE captions proj [--style bold-pop|impact|clean|minimal] [--words 3]
 ```
 2–3 words at a time, active-word highlight, positioned clear of platform UI. Styles: see
 [references/caption-styles.md](references/caption-styles.md). For "cinematic"/embedded-behind-subject captions use
-the HyperFrames route (`embedded-captions` skill).
+the HyperFrames route and its caption/overlay guidance; do not assume a separate caption skill is installed.
 
 ### 4. Music
 Personal library at `~/.one-shot-editing/library/music` — see [references/music-library.md](references/music-library.md).
@@ -161,6 +179,11 @@ $OSE plan proj --add-text '{"text":"3x faster","start":12,"end":13.5}'      # bi
 $OSE plan proj --add-sfx '{"at":4.2,"asset":"whoosh"}'   # built-in: whoosh pop click ding boom riser (or a file)
 ```
 Emphasis zooms belong on punchlines, numbers and key claims — choose those yourself; let `--apply` fill the rest.
+`smooth` eases in and out; `punch` intentionally cuts between scales. A passing pacing report only counts
+events, not smoothness. For designed output, choreograph motion and sound in the compositor instead of
+filling every gap with auto zooms. Prefer licensed sound files for that route; built-ins remain available
+for simple edits. Align each sound's transient to the visual event and adjust its gain by listening, not
+by applying one fixed dB value to every asset. Music ducking does not duck the SFX.
 
 ### 7. Call to action ◆
 See [references/cta.md](references/cta.md). Match the CTA to the goal (follow for part 2, comment keyword, save,
@@ -182,6 +205,9 @@ $OSE cover proj [--n 6]                        # no --at: extracts candidate fra
 $OSE cover proj --at 3.2 --text "THE TITLE"    # out/cover.jpg (clean frame + big title)
 ```
 **Look at `out/contact_sheet.jpg`** (and a few frames), and listen across edit boundaries before declaring done.
+For designed output, also inspect frames around overlay entrances/exits and compare the pilot to the primary
+reference. Listen to voice-only, voice+music and the full mix on headphones and a phone speaker; record
+unperformed checks as pending, not approved. See [references/footage-overlays.md](references/footage-overlays.md).
 QA errors return exit status 1, including failed measurements or missing required editorial evidence. Fix them
 and rerun the affected steps, or report the output as blocked; never call an unverified file post-ready.
 The editorial checks require readable `work/cut_words.json` and `work/edl.json` with nonempty words/segments.
@@ -204,6 +230,7 @@ upload; the social profile is an explicit conversion, not the archival master.
 the plan's caption settings) → QA. Missing transcripts/EDLs are created. Reviewed cuts and captions-off settings
 are preserved; generated pacing zooms are refreshed, while manual zooms stay. It is a first look, not automatic
 editorial approval. Hook, music, B-roll and CTA still need judgement.
+This fast path does not create HyperFrames overlays, a storyboard or a designed-output approval.
 
 Use `auto proj --rebuild-edl` only to deliberately replace the existing cuts, then recheck timed plan items.
 EDLs fingerprint source bytes and ordered transcript content. Cut/render records additionally bind quality,
@@ -237,4 +264,5 @@ examples: [references/plan-schema.md](references/plan-schema.md). Times in the p
 - [caption-styles.md](references/caption-styles.md) · [platforms.md](references/platforms.md)
 - [music-library.md](references/music-library.md) · [broll.md](references/broll.md) · [app-footage.md](references/app-footage.md)
 - [plan-schema.md](references/plan-schema.md) · [hyperframes-route.md](references/hyperframes-route.md)
+- [footage-overlays.md](references/footage-overlays.md)
 - [troubleshooting.md](references/troubleshooting.md) · [oss-resources.md](references/oss-resources.md)

@@ -26,7 +26,10 @@ Shorts. It works in one pass, and you approve the creative calls.
 | + | **Finish** | Optional voice cleanup, measured two-pass loudness, rendered-overlay QA, contact sheet, cover, revision-bound approvals and cohort-aware performance summaries |
 
 Rendering is **ffmpeg** by default (fast, native-looking). For designed output (kinetic type, embedded captions,
-motion graphics) the skill hands the cut to **[HyperFrames](https://github.com/heygen-com/hyperframes)**.
+motion graphics, footage with animated overlays) the skill hands the cut to
+**[HyperFrames](https://github.com/heygen-com/hyperframes)**. That route uses a reference-led style sheet,
+storyboard and 10–15 s pilot before the full composition, with separate cut-continuity and sound-design
+review. See [the footage-with-overlays guide](skills/one-shot-editing/references/footage-overlays.md).
 
 Inspired by a creator's "my videos are edited by Claude Code" workflow (hook doc → WhisperX rough cut → 2–3-word
 subtitles → yt-dlp music library → auto-sorted B-roll + simulator recordings → cuts every 3 s → CTA). This
@@ -34,8 +37,9 @@ project turns that workflow into a reusable, open toolkit.
 
 ## Install
 
-Requirements: **ffmpeg with libass**, and either [uv](https://docs.astral.sh/uv/) or Python 3.10–3.12. Node is
-optional (web capture). adb and Xcode are optional (app capture).
+Requirements: **ffmpeg with libass**, and either [uv](https://docs.astral.sh/uv/) or Python 3.10–3.12.
+Node.js 22+ is required for the optional HyperFrames route; Node is also used for web capture.
+adb and Xcode are optional (app capture).
 
 The toolkit uses Bash and Unix tools: use Linux, macOS, or WSL on Windows. Installing the plugin does not
 install system dependencies or add `ose` to your shell's `PATH`.

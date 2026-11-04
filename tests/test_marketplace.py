@@ -42,6 +42,7 @@ def test_marketplace_resolves_complete_plugin(catalog_path):
         "scripts/setup.sh",
         "scripts/ose/__main__.py",
         "references/plan-schema.md",
+        "references/footage-overlays.md",
         "assets/hooks.json",
         "assets/plan.schema.json",
         "pyproject.toml",

@@ -23,12 +23,22 @@ the clip's purpose. Preserving meaning and intelligibility takes priority over r
   0.3 s. Educational or emotional content can breathe more.
 - **Emphasis zooms** (choose them yourself): punchlines, numbers, "the key is…", reveals. Use `punch` (instant
   1.2–1.3) for comedy or impact, `smooth` (eased 1.1–1.15) for explanations, and `slow` (gradual push) for stories.
+  `smooth` eases back to the base scale before its end; `slow` still ends with an intentional scale reset.
+  Counting a cut or zoom as a pacing event does not certify its continuity.
 - **Transitions**: hard cuts by default. Use whooshes or zoom-through only at section changes, at most 1–2 per video.
   Fancy transitions between every cut look amateur.
 - **B-roll**: 1–3 s each, cut on the word it illustrates (start about 0.1 s before the word). Use `pip` when the
   face matters (reactions, emotion) and `full` for demos and screens.
-- **Sound design**: subtle SFX on visual events (pop on text, whoosh on B-roll entry) at about -10 dB. Never more
-  than one SFX per 2–3 s.
+- **Sound design**: subtle licensed SFX on meaningful visual events, with the transient aligned to the event
+  and gain auditioned per asset. A fixed gain or effect frequency is not a quality target; leave quiet beats.
+  Music ducking does not duck the SFX. Follow [footage-overlays.md](footage-overlays.md) for designed output.
+
+## Continuity and designed output
+
+Review every seam with picture and audio context. Preserve useful breaths and clean hard cuts; repair
+clipped phonemes and unintended framing/scale jumps. Do not use global face dissolves or effects to hide
+bad cut points. Footage with explanatory overlays needs the HyperFrames storyboard/pilot route, not more
+automatic zooms. See [footage-overlays.md](footage-overlays.md) for movement and sound acceptance checks.
 
 ## Content
 - One idea per video. If the transcript has two ideas, propose two videos.
