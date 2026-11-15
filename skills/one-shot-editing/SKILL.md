@@ -4,12 +4,13 @@ description: >-
   Edit raw talking-head footage into a finished, retention-optimised short vertical video (TikTok, Reels, Shorts)
   in one pass: hook selection, word-level rough cut (fillers, pauses, retakes), 9:16 reframe, 2-3-word animated
   captions, music from a personal tagged library (yt-dlp), B-roll library with auto-labelling and optional app/web
-  footage capture, pacing (a visual change every ~3 s, zooms), call to action, QA and a cover. Bilingual PT-BR / EN.
+  footage capture, purposeful pacing, call to action, QA and a cover. Bilingual PT-BR / EN.
   Use when the user says "edit this video", "make a TikTok/Reel/Short from this", "cut my talking head", "remove
   the ums/pauses", "add captions and music", "edita esse vídeo", "faz um corte pro TikTok", "tira as pausas",
   "legenda esse vídeo", or drops a raw recording and wants a post-ready short. Also for managing the music/B-roll
   libraries, picking a hook or logging video performance. Also use for footage with animated overlays,
   motion-design reference matching, "video de fundo com animacoes sobrepostas" and sound-design review.
+  Coordinates Bang Motion direction, Video Shotcraft recipes and optional Earshot SFX for HyperFrames output.
 ---
 
 # one-shot-editing
@@ -18,8 +19,9 @@ Raw recording in, reviewed vertical short out. This follows a common creator wor
 captions → music → B-roll → transitions/pacing → CTA** — and adds the steps that workflow leaves implicit: audio
 cleanup, reframing, QA, a cover and a performance feedback loop.
 
-Everything is driven by the `ose` CLI (Python toolkit + ffmpeg). You (the agent) make the creative decisions —
-hook, which retakes to keep, music, B-roll placement, CTA — and `ose` does the deterministic work.
+The `ose` CLI (Python toolkit + ffmpeg) owns the editorial pipeline and the simple render route.
+You (the agent) make the creative decisions. Designed output uses the companion skills below, with one
+approved cut and one HyperFrames composition/mix, not multiple competing editing pipelines.
 
 Resolve `OSE` to `bin/ose` beside this loaded skill, including when installed in a plugin cache. Do not assume
 `~/.agents/skills` exists. Run `bash "$OSE" doctor` first; use `bash "$OSE"` in place of `$OSE` below if the
@@ -41,12 +43,14 @@ in their language and write on-screen text (hook, CTA, captions) in the video's 
 | Route | When | How |
 |---|---|---|
 | **ffmpeg (default)** | Normal talking-head shorts; speed matters; batch editing | `ose render` (everything below) |
-| **HyperFrames** | Footage as the background with animated overlays; reference-led motion design, kinetic typography, embedded captions, animated cards or explainers | Cut with `ose`, approve a storyboard and pilot, then compose the whole video in HyperFrames — see [references/hyperframes-route.md](references/hyperframes-route.md) |
+| **HyperFrames** | Footage with animated overlays; reference-led motion design, kinetic typography, embedded captions or fullscreen explanations | Cut with `ose`; Bang Motion directs, Video Shotcraft supplies recipes, optional Earshot supplies SFX; approve a pilot, then compose in HyperFrames. See [references/motion-direction.md](references/motion-direction.md) and [references/hyperframes-route.md](references/hyperframes-route.md). |
 
 Mixing is fine: render the short with ffmpeg and build one or two designed inserts (title card, animated stat) in
 HyperFrames, then drop the rendered inserts in as B-roll.
 For footage-with-overlays briefs, inserts alone are not the requested style: keep the presenter as the base
-and use [references/footage-overlays.md](references/footage-overlays.md). Do not treat `ose auto` as that route.
+and choose intentional fullscreen explanations only where needed, with a return to the presenter.
+Use [references/footage-overlays.md](references/footage-overlays.md). Do not treat `ose auto` as that route.
+Isolated designed inserts also use the companion contract, scoped to the insert rather than the entire film.
 
 ## Workflow
 
@@ -63,6 +67,14 @@ show the result plus the QA report.
   frames and audio, and separate content lessons from visual style. Preserve available reference downloads
   locally; never depend on the ignored repository-root `references/` being installed with this skill.
   If the user's source or previous output is missing, request it; do not substitute a reference creator's footage.
+- Detect the current harness and check required skills in its active project/plugin/user scopes.
+  Automatically install missing companions into that harness before their first use, following
+  [companion setup](references/oss-resources.md#design-companion-setup). Announce the setup; no extra user
+  confirmation is needed for this missing-skill bootstrap, subject to host permissions.
+  For designed output, ensure `hyperframes`, Bang Motion and Video Shotcraft are available before composition;
+  install Earshot when its optional SFX stage is selected. Load and verify each installed skill before use.
+  Follow [references/motion-direction.md](references/motion-direction.md) for stage boundaries. Reuse existing
+  installations; do not overwrite, auto-update, install into other harnesses or fetch optional analysis models.
 - **Preserve source quality.** The default `source` profile keeps supported SDR/CFR native resolution (or
   native-resolution portrait crop), FPS, bit depth, chroma and color tags, with lossless intermediates and final
   video encoding. Do not silently downgrade 4K/60 fps/10-bit footage. Crop/zoom/compositing still change pixels.
@@ -70,7 +82,8 @@ show the result plus the QA report.
   explicit 1080x1920/30 fps/8-bit delivery conversion. HDR/Dolby Vision and unsupported source formats stop
   processing rather than losing color/detail silently; use an appropriate color-managed workflow.
 - For an existing project, inspect its transcript, EDL and plan before rebuilding anything. Use `render --draft`
-  when only a faster preview is requested; existing timed placements depend on the approved cut.
+  for native previews, or the selected compositor's preview for designed output; existing timed placements
+  depend on the approved cut.
 ```bash
 $OSE init proj --video raw.mp4 [--lang pt|en] [--platform tiktok|reels|shorts] [--quality source|social]
 ```
@@ -126,15 +139,22 @@ $OSE cut proj [--reframe face|center|blur|fill]   # renders lossless work/cut.mk
   is pose/framing, a clipped phoneme, ambience or a zoom reset. The cut's short audio fades prevent clicks;
   they do not guarantee continuity. Keep good hard cuts; repair bad ones before decorating them.
 
-### 2a. Designed overlays: storyboard and pilot ◆
-Only for the HyperFrames route: follow [references/footage-overlays.md](references/footage-overlays.md).
-Write the project's style sheet and storyboard after the cut is locked, with exact cut-timeline beats,
-overlay purpose, real asset, entrance/hold/exit, cut treatment and sound cue. Approve a 10–15 s pilot
-before extending to the whole video; in one-shot mode inspect it and record the decision without waiting.
+### 2a. Designed motion: direction, recipes, sound and pilot ◆
+Only for the HyperFrames route: follow [references/motion-direction.md](references/motion-direction.md) and
+[references/footage-overlays.md](references/footage-overlays.md).
+After the cut is locked, load `bang-motion` for direction and representative styleframes. Plan the visible
+action and result for each spoken beat; choose overlay, fullscreen or no graphic and preserve related objects.
+Load `video-shotcraft` before storyboard approval for selected recipe cards, exact variants, previews and source.
+Search `hyperframes-registry` before implementation; reuse a suitable component or adapt the recipe to GSAP.
+Once visual events are timed, choose sound or silence per cue. Load optional `earshot` only for the selected
+generation/analysis scope, following [references/earshot-sfx.md](references/earshot-sfx.md).
+Approve a 10–15 s pilot before extending to the whole video; in one-shot mode inspect and record the decision
+without waiting, but keep unperformed artistic/listening checks pending. A technical pass is not style approval.
 Do not render ASS captions first. Use steps 3–7 below for editorial decisions, then follow the HyperFrames
 handoff instead of `ose render`/`auto`. External output requires the compositor's own review evidence.
 
 ### 3. Captions
+The command below is for the FFmpeg route; designed captions use cut words in the compositor.
 ```bash
 $OSE captions proj [--style bold-pop|impact|clean|minimal] [--words 3]
 ```
@@ -149,7 +169,9 @@ $OSE music add "<url or file>" --tags "lofi,focus" --vibe "calm late-night codin
 $OSE music suggest "<topic + intended feeling>" [--mood hype] [--energy 0.7]
 $OSE plan proj --set music.track=<id> --set music.volume_db=-18
 ```
-Music is ducked under the voice automatically. **Licensing:** trending/copyrighted songs → render without music
+The FFmpeg route ducks music under the voice automatically; configure it explicitly in the HyperFrames mix.
+Do not let a companion add music or replace the voice outside the approved brief.
+**Licensing:** trending/copyrighted songs → render without music
 (or keep it only for preview) and tell the user to add the sound in-app; QA flags `unknown`/`platform-only` tracks.
 
 ### 5. B-roll
@@ -178,12 +200,14 @@ $OSE plan proj --add-zoom '{"start":8.1,"end":9.4,"scale":1.2,"style":"punch"}'
 $OSE plan proj --add-text '{"text":"3x faster","start":12,"end":13.5}'      # big on-screen word/number
 $OSE plan proj --add-sfx '{"at":4.2,"asset":"whoosh"}'   # built-in: whoosh pop click ding boom riser (or a file)
 ```
-Emphasis zooms belong on punchlines, numbers and key claims — choose those yourself; let `--apply` fill the rest.
+Emphasis zooms belong on punchlines, numbers and key claims. `--apply` is an optional simple-route convenience,
+not a requirement to fill every quiet stretch.
 `smooth` eases in and out; `punch` intentionally cuts between scales. A passing pacing report only counts
 events, not smoothness. For designed output, choreograph motion and sound in the compositor instead of
-filling every gap with auto zooms. Prefer licensed sound files for that route; built-ins remain available
-for simple edits. Align each sound's transient to the visual event and adjust its gain by listening, not
-by applying one fixed dB value to every asset. Music ducking does not duck the SFX.
+filling every gap with auto zooms. Use approved recorded assets or optional Earshot candidates for that route;
+see [references/earshot-sfx.md](references/earshot-sfx.md). Built-ins remain available for simple edits, not as
+a silent replacement for requested sound design. Align each sound's transient to the visual event and adjust
+its gain by listening, not by applying one fixed dB value to every asset. Music ducking does not duck the SFX.
 
 ### 7. Call to action ◆
 See [references/cta.md](references/cta.md). Match the CTA to the goal (follow for part 2, comment keyword, save,
@@ -191,7 +215,7 @@ link in bio). Spoken CTA lives in the cut; the on-screen card is set in the plan
 ```bash
 $OSE plan proj --set cta.text="Follow for part 2"   # shown for the last ~2.8 s (cta.start / cta.duration to override)
 ```
-Then preview and render:
+For the FFmpeg route, preview and render below. Designed output instead follows the HyperFrames handoff:
 ```bash
 $OSE render proj --draft     # fast preview → out/draft.mp4
 $OSE qa proj --file proj/out/draft.mp4   # explicitly check the preview, not an older final
@@ -199,6 +223,8 @@ $OSE render proj             # source-quality master → out/final.mp4; measured
 ```
 
 ### 8. QA, cover, post copy
+The ose commands/reports below apply to native output. For designed output, use the compositor's checks,
+snapshots and rendered cover frames; external files do not acquire ose provenance or approval automatically.
 ```bash
 $OSE qa proj                 # loudness, black frames, dead air, hook speed, pacing, caption length/flash, safe zone, licence
 $OSE cover proj [--n 6]                        # no --at: extracts candidate frames — view them and pick one
@@ -206,7 +232,9 @@ $OSE cover proj --at 3.2 --text "THE TITLE"    # out/cover.jpg (clean frame + bi
 ```
 **Look at `out/contact_sheet.jpg`** (and a few frames), and listen across edit boundaries before declaring done.
 For designed output, also inspect frames around overlay entrances/exits and compare the pilot to the primary
-reference. Listen to voice-only, voice+music and the full mix on headphones and a phone speaker; record
+reference, selected styleframes and recipe previews. Record artistic defects with timestamps/frames and
+corrections in the project's `REVIEW.md`, separately from technical QA and listening status.
+Listen to voice-only, voice+music (when present) and the full mix on headphones and a phone speaker; record
 unperformed checks as pending, not approved. See [references/footage-overlays.md](references/footage-overlays.md).
 QA errors return exit status 1, including failed measurements or missing required editorial evidence. Fix them
 and rerun the affected steps, or report the output as blocked; never call an unverified file post-ready.
@@ -219,8 +247,9 @@ credit if `cc-by`, and a reminder to log results later:
 ```bash
 $OSE perf add --hook-pattern curiosity-gap --hook "..." --topic "..." --views 12000 --retention-3s-pct 62 --completion-pct 31
 ```
-Record final approval only after reviewing this exact output:
+For native output, record final approval only after reviewing this exact output:
 `$OSE review proj --approve final --note "Watched output and checked audio/captions/framing"`.
+For designed output, bind `REVIEW.md` to the actual output path/hash and compositor evidence instead.
 Rendered QA samples actual libass glyph bounds, card/caption collisions and detected-face overlaps; it is not
 exhaustive and face-detection misses still need human review. Review source-quality master compatibility before
 upload; the social profile is an explicit conversion, not the archival master.
@@ -241,10 +270,12 @@ full quality. Both `auto` and `qa` exit unsuccessfully when QA reports errors.
 
 ## Plan file
 
-Cut decisions live in `proj/work/edl.json`; visual/audio treatments live in `proj/work/plan.json`
+Cut decisions live in `proj/work/edl.json`; supported native visual/audio treatments live in `proj/work/plan.json`
 (`ose plan --set/--add-*` or edit it directly). Schema and
 examples: [references/plan-schema.md](references/plan-schema.md). Times in the plan are on the **cut timeline**
 (after rough cut), not the raw footage. `ose text proj --cut` shows cut-timeline timestamps.
+Designed choreography, recipe provenance and richer sound cues belong in the project's storyboard/composition,
+not additional schema keys.
 
 ## Rules of thumb
 - Aim for an early hook and first word; avoid unnecessary intros, but keep the context needed to understand the claim.
@@ -264,5 +295,6 @@ examples: [references/plan-schema.md](references/plan-schema.md). Times in the p
 - [caption-styles.md](references/caption-styles.md) · [platforms.md](references/platforms.md)
 - [music-library.md](references/music-library.md) · [broll.md](references/broll.md) · [app-footage.md](references/app-footage.md)
 - [plan-schema.md](references/plan-schema.md) · [hyperframes-route.md](references/hyperframes-route.md)
-- [footage-overlays.md](references/footage-overlays.md)
+- [footage-overlays.md](references/footage-overlays.md) · [motion-direction.md](references/motion-direction.md)
+- [earshot-sfx.md](references/earshot-sfx.md)
 - [troubleshooting.md](references/troubleshooting.md) · [oss-resources.md](references/oss-resources.md)

@@ -3,6 +3,8 @@
 Use for reference-led shorts where the presenter stays as the visual base and motion graphics illustrate
 the speech. This is a designed HyperFrames route, not an auto-zoom preset. Preserve good hard cuts;
 smoothness means motivated continuity, not dissolving between every pair of faces.
+Use [motion-direction.md](motion-direction.md) to load Bang Motion for direction and Shotcraft for recipes.
+Fullscreen explanation is allowed when the mechanism needs space; plan why and when the presenter returns.
 
 ## Reference intake and style sheet
 
@@ -21,7 +23,7 @@ Save the following in the project's `STYLE.md` before composition:
 - Colors chosen for the actual footage, legible at phone size; one accent with a semantic purpose.
 - Movement roles and durations, reading holds, allowed cut treatments and sound roles.
 
-Starting direction from the analyzed primary reference, not measured original animation parameters:
+Starting values to adapt to the selected direction, not a fixed reference-derived template:
 
 | Element | Starting treatment |
 | --- | --- |
@@ -36,18 +38,31 @@ Starting direction from the analyzed primary reference, not measured original an
 | Caption | Usually 1-3 words, selective highlight, clear of face and platform controls. |
 | Quiet beat | Remove explanatory overlays when the presenter delivers the conclusion. No decorative pulses or sound spam. |
 
+Before animation, inspect representative styleframes over the real footage and at phone size. Reject tiny
+labels, repeated top-panel layouts and ineffective hierarchy before polishing their entrance effects.
+Record the selected direction and companion revisions in `STYLE.md`.
+
 ## Storyboard on the locked cut
 
 Save `STORYBOARD.md` in the project. Replace placeholders with actual words and times from `cut_words.json`;
 never invent timestamps from an unaligned transcript. The table is a human planning artifact, not new
 `plan.json` fields: the plan schema rejects unknown keys.
 
-| Cut time / phrase | Purpose | Overlay / licensed asset | Entrance / hold / exit | Cut treatment | Sound cue / transient / gain |
-| --- | --- | --- | --- | --- | --- |
-| Actual range from cut words | Hook or explanation | Real capture, type or intentionally none | Start state, landing and end state | Good hard cut, motivated crop or source repair | Asset, visual hit time, transient offset and auditioned gain; or none |
+Each beat records the following (use a table or a short block per beat):
+
+| Field | Required decision |
+| --- | --- |
+| Cut time / phrase | Exact words and time from cut words; stable beat ID. |
+| Purpose / action | What the viewer learns; initial state -> visible action -> result, not just a noun/icon. |
+| Continuity | Which object persists, transforms or hands off to the next beat. |
+| Composition / assets | Overlay, fullscreen or no graphic, with reason; source/license or labeled conceptual illustration. |
+| Recipe / component | Shotcraft card, variant, exact demo and revision; registry choice; necessary GSAP adaptations. |
+| Timing / cut | Entrance, action, landing, stable reading hold, exit; camera framing and seam treatment. |
+| Sound | Cue ID, purpose or none, selected take, visual event, measured anchor, offset, gain and review status. |
 
 Make a 10-15 s pilot containing at least two existing cuts, emphasis and a demonstration where the material
-allows it. Compare the same excerpt with and without treatment. Get style approval before scaling up;
+allows it. Include an overlay/fullscreen handoff when the brief uses both. Compare the same excerpt with and
+without treatment and against the chosen styleframes/recipe previews. Get style approval before scaling up;
 in no-stops mode inspect it and record the decision. If the source is missing, stop the media work and
 request it; a reference Reel is not substitute footage for the user's project.
 
@@ -68,8 +83,9 @@ pose/framing jump, clipped phoneme, changing ambience, zoom reset or overlay ent
 
 ## Sound cues, assets and mix
 
-Use a small licensed sound kit: soft movement, UI contact, light impact and tonal transition as needed.
-Existing ose SFX accept file paths; built-in synthesis is still available but is not a premium sound kit.
+Use a small coherent sound kit: approved recorded assets or optional Earshot bank/kit candidates for stylized
+movement and contacts. Follow [earshot-sfx.md](earshot-sfx.md) after visual events are timed.
+Existing ose SFX accept file paths; built-in synthesis is for the simple route, not a premium sound kit.
 Inspect candidate assets before using them; record source, license and any required attribution.
 Do not install a tool merely because a reference names it, or download assets without checking rights.
 
@@ -84,7 +100,7 @@ Do not install a tool merely because a reference names it, or download assets wi
 - Keep the voice once, in either the base footage or a replacement mix. Never sum both copies.
 - Start with the toolkit's -14 LUFS integrated / <= -1.5 dBTP target for the final mix. Measure it again
   after composition; do not copy a reference's clipped peak or confuse loudness with sound quality.
-- Compare voice-only, voice+music and full mix on headphones and a phone speaker at low and normal
+- Compare voice-only, voice+music (when present) and full mix on headphones and a phone speaker at low and normal
   volume. Missing listening checks must remain pending, even if technical QA passes.
 
 ## Composition and acceptance
@@ -102,9 +118,16 @@ Before calling the pilot approved:
 - Run HyperFrames check and fix errors; inspect scene midpoints, motion peaks and boundaries, not just a cover.
 - Compare to the primary reference: presenter visible, purposeful scale/hierarchy, readable stable holds,
   clean entrances/exits, real demonstration assets and intentional quiet beats.
-- Verify cut continuity and the three audio mixes above. Record remaining manual checks honestly.
+- During fullscreen beats, require justified framing and an intentional return instead of presenter visibility.
+- Check perspective, real motion paths, object continuity and phrase-to-action timing. A diagram must explain
+  a mechanism, not merely reveal labels; inspect peaks and seams densely and play the pilot at normal speed.
+- Verify cut continuity and the applicable audio mixes above. Record remaining manual checks honestly.
 - Measure rendered duration, dimensions, FPS, loudness and true peak. Preserve the compositor's review
   evidence; external renders do not gain ose provenance by writing a fabricated passing sidecar.
+
+Write `REVIEW.md` with separate technical, artistic and listening status. Every failed criterion needs a
+timestamp/frame, evidence, correction and recheck result; missing evidence means pending, not pass.
+If artistic review fails, revise the direction/recipe and pilot instead of adding more effects.
 
 After approval, extend the same visual grammar to the whole film and review the actual final output.
 Do not claim viewer retention, licensing, framing or artistic quality from automated metrics alone.

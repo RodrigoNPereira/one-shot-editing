@@ -21,24 +21,28 @@ Shorts. It works in one pass, and you approve the creative calls.
 | 4 | **Captions** | 2–3 words at a time, active-word highlight, 4 styles, platform safe zones |
 | 5 | **Music** | Personal library: paste a link (yt-dlp) or a file, auto BPM/energy/mood, tag by vibe; suggestions by topic; ducked under the voice; licence tracking |
 | 6 | **B-roll** | Drop files in an inbox; the agent looks at thumbnails, labels and files them; text search; full-screen or picture-in-picture; web captures (agent-browser) and **optional app footage** (Android emulator / iOS Simulator / your recordings) |
-| 7 | **Pacing** | A visual change at least every ~3 s: hard cuts, punch/smooth zooms, on-screen text, SFX |
+| 7 | **Pacing** | Purposeful changes tied to speech; static stretches are review prompts, not a quota of zooms or effects |
 | 8 | **CTA** | Goal-matched call-to-action templates (EN/PT-BR) and an end card |
 | + | **Finish** | Optional voice cleanup, measured two-pass loudness, rendered-overlay QA, contact sheet, cover, revision-bound approvals and cohort-aware performance summaries |
 
 Rendering is **ffmpeg** by default (fast, native-looking). For designed output (kinetic type, embedded captions,
 motion graphics, footage with animated overlays) the skill hands the cut to
-**[HyperFrames](https://github.com/heygen-com/hyperframes)**. That route uses a reference-led style sheet,
-storyboard and 10–15 s pilot before the full composition, with separate cut-continuity and sound-design
-review. See [the footage-with-overlays guide](skills/one-shot-editing/references/footage-overlays.md).
+**[HyperFrames](https://github.com/heygen-com/hyperframes)**. **Bang Motion** directs the visual explanation;
+**Video Shotcraft** supplies selected motion recipes, adapted to HyperFrames rather than switching renderers.
+Optional **Earshot** supplies procedural SFX candidates. Styleframes, a semantic storyboard and a 10–15 s pilot
+precede the full composition, with separate technical, artistic and listening review.
+See [motion direction](skills/one-shot-editing/references/motion-direction.md) and
+[SFX design](skills/one-shot-editing/references/earshot-sfx.md).
 
 Inspired by a creator's "my videos are edited by Claude Code" workflow (hook doc → WhisperX rough cut → 2–3-word
-subtitles → yt-dlp music library → auto-sorted B-roll + simulator recordings → cuts every 3 s → CTA). This
+subtitles → yt-dlp music library → auto-sorted B-roll + simulator recordings → pacing review → CTA). This
 project turns that workflow into a reusable, open toolkit.
 
 ## Install
 
 Requirements: **ffmpeg with libass**, and either [uv](https://docs.astral.sh/uv/) or Python 3.10–3.12.
 Node.js 22+ is required for the optional HyperFrames route; Node is also used for web capture.
+Designed output additionally requires Bang Motion and Video Shotcraft skills; see companion setup below.
 adb and Xcode are optional (app capture).
 
 The toolkit uses Bash and Unix tools: use Linux, macOS, or WSL on Windows. Installing the plugin does not
@@ -100,6 +104,26 @@ Dependencies live in the skill's `pyproject.toml` and `uv.lock`, including optio
 (repeat `--extra` to combine). Setup synchronizes a dedicated environment exactly; specify all wanted extras.
 The wrapper refreshes its managed environment when the lock changes, retaining the last selected extras.
 An explicit `OSE_VENV` is caller-managed. Only one OpenCV distribution is installed.
+
+### Design companion setup
+
+The marketplace and `install.sh` install **one-shot-editing only**. They do not vendor, download or update
+Bang Motion, Video Shotcraft, HyperFrames or Earshot. The native FFmpeg route remains independent of them.
+**When the skill runs, the agent automatically installs missing companions into the current harness before
+their first use**, using the [bootstrap instructions and pinned sources](skills/one-shot-editing/references/oss-resources.md#design-companion-setup).
+It announces setup without asking for separate confirmation, respects host permissions, and reuses existing
+installations without overwriting or updating them. Earshot is installed when its optional stage is selected;
+its Python CLI is bootstrapped separately when needed, isolated from ose's environment.
+
+At intake, the agent resolves actual installed skill locations and records revisions. After cut approval it
+loads Bang Motion; before storyboard approval, Shotcraft; after visual cue timing, Earshot only when needed.
+Installation is verified in the active harness; a required restart or failed setup is reported explicitly.
+HyperFrames remains the compositor and mixer. No automatic Remotion migration, `real-sound` workflow,
+model downloads, audio uploads or upstream full-promo pipelines.
+
+The pinned revisions are research baselines, not end-to-end compatibility certification. This integration
+changes instructions and packaging, not the CLI or plan schema. A real-media pilot is still required before
+claiming improved animation or sound quality.
 
 ## Source-quality contract
 
@@ -195,7 +219,7 @@ skills/one-shot-editing/
   scripts/ose/             toolkit: transcribe, roughcut, cut, captions, music, broll, pacing, render, qa, hooks
   scripts/capture_*.sh     web (agent-browser), Android (adb), iOS Simulator (simctl + idb) capture
   scripts/setup.sh         environment setup
-  references/              hooks, CTA, retention rules, caption styles, platforms, music, B-roll, app footage, …
+  references/              editorial guides, motion-direction, earshot-sfx, HyperFrames handoff and evaluation
   assets/hooks.json        starter hook library (EN + PT-BR)
   assets/fonts/            Montserrat + Anton (SIL OFL)
 tests/                     pytest suite (synthetic media, no model download)
@@ -256,3 +280,5 @@ PySceneDetect, OpenCV, Demucs and agent-browser. See
 [references/oss-resources.md](skills/one-shot-editing/references/oss-resources.md). The fonts are under the SIL
 Open Font License. **Music you download is your responsibility**: the skill tracks licences and warns, but
 trending songs should be added in-app, not baked in.
+Design companions are separate upstream projects: Bang Motion and Earshot (MIT), Video Shotcraft (Apache-2.0).
+No upstream code or third-party media is bundled by this integration.

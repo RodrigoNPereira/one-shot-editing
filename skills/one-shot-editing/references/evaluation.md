@@ -68,6 +68,51 @@ Review the final render, not only its contact sheet, then use `--approve final`.
 plan, EDL and asset bytes. QA reports missing approval as a warning separately from technical failures.
 An automated pass must not imply human review or claim an unreviewed output is post-ready.
 
+## Designed motion and SFX pilot
+
+This is a separate artistic evaluation, not extra `ose benchmark` fields. Save `STYLE.md`, `STORYBOARD.md`,
+selected recipe/variant revisions, cue/take metadata, frames and `REVIEW.md` in the video project.
+Use the same approved cut, narration, dimensions and FPS for the old/new comparison; identify browser/delivery
+conversions. Do not improve apparent results by recutting speech or selecting different excerpts.
+
+For the data-engineering revision that motivated this integration, the candidate pilot is approximately
+18.4-33 s of the existing approved cut: sources merge, logistics events become table rows.
+Confirm those times against the actual current cut words before reuse; do not assume another revision has the
+same timestamps. The source project is external and is not bundled here.
+Compare the old output, the selected Instagram reference (a baseline, not a quality ceiling) and the new pilot.
+Keep reference footage local; do not incorporate its frames or soundtrack into delivered media.
+
+| Artistic criterion | Evidence to inspect |
+| --- | --- |
+| Explanation | The visible action demonstrates the spoken mechanism rather than only presenting labels. |
+| Object continuity | Sources remain recognizable as records merge; events become actual rows rather than an unrelated table reveal. |
+| Framing | Overlays leave usable presenter/caption space; fullscreen diagrams use the frame and return intentionally. |
+| Motion | Paths agree with trajectories and perspective; entrances/actions/exits do not snap or drift accidentally. |
+| Timing | Actions land on the relevant spoken words; the viewer has time to read the resulting state. |
+| Restraint | No repeated top-card template, forced camera movement or effect count substituting for direction. |
+| Sound | Meaningful contacts, coherent character, controlled tails and intelligible voice; silence is intentional. |
+
+Inspect native-size frames and phone-width views, densely around movement peaks and transitions, then watch
+at normal speed. A sparse contact sheet cannot certify motion. Record pass/fail/pending for each criterion,
+with timestamp/frame and correction; fix the cause and rerender the same pilot before extending.
+
+For SFX revision, export three comparisons with **identical picture**:
+1. Voice only.
+2. Voice plus the prior SFX.
+3. Voice plus the new SFX.
+
+Keep voice gain unchanged and music absent in all three to isolate the SFX; if the final uses music, review
+that mix separately. Do not compare independently normalized variants that change voice loudness as if they
+isolate sound design. Check transient-to-event offsets in the export, masking, tails and fatigue.
+Listen on headphones and a phone speaker at low/normal volume; log who reviewed and what remains pending.
+Earshot audits, onset measurements, model scores or existing review metadata do not constitute a listening test.
+
+Technical acceptance remains separate: compositor checks, deterministic seeking, duration, dimensions/FPS,
+asset availability, single voice, final loudness/true peak and no duplicate mix. Preserve actual compositor
+evidence, never fabricate ose provenance or reuse an old render's approval.
+The integration itself does not establish a higher quality score or retention; that requires this pilot and
+creator review. Missing access to media, tools or listening means the corresponding evaluation is blocked/pending.
+
 ## Research references
 
 - [uv lock/sync](https://docs.astral.sh/uv/concepts/projects/sync/)

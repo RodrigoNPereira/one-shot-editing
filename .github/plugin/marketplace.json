@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Open-source video editing skills for coding agents.",
-    "version": "1.0.4"
+    "version": "1.0.5"
   },
   "plugins": [
     {
       "name": "one-shot-editing",
       "description": "Turn raw talking-head footage into captioned vertical shorts with music, B-roll, and quality checks.",
-      "version": "2.0.1",
+      "version": "2.1.0",
       "source": "./",
       "category": "Productivity",
       "tags": [

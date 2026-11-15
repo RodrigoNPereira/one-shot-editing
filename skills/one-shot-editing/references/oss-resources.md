@@ -17,6 +17,99 @@ Used by this skill, plus alternatives worth knowing when extending it.
 | [agent-browser](https://github.com/vercel-labs/agent-browser) | Web screenshots and recordings | Apache-2.0 |
 | adb / `xcrun simctl` / [idb](https://fbidb.io) | Android and iOS app capture | Apache-2.0 / Apple / MIT |
 | Montserrat, Anton | Caption fonts | SIL OFL 1.1 |
+| [HyperFrames](https://github.com/heygen-com/hyperframes) (designed route) | Deterministic HTML/GSAP composition and render; installed separately | Check installed distribution and asset terms |
+| [Bang Motion](https://github.com/bangtutorial/bang-motion) (designed route) | Visual direction after cut lock; separate companion skill | MIT |
+| [Video Shotcraft](https://github.com/Vincentwei1021/video-shotcraft) (designed route) | Selected shot recipes adapted to HyperFrames; separate companion skill | Apache-2.0 |
+| [Earshot](https://github.com/Leonxlnx/earshot) (optional) | Local procedural SFX bank/kit and measurements; separate skill and CLI | MIT; inspect per-asset provenance |
+
+## Design companion setup
+
+### Automatic missing-skill bootstrap
+
+When one-shot-editing needs a companion, install it automatically if it is absent from the **current harness**.
+This is standing authorization for missing companion skills and local runtime prerequisites needed for the
+selected stage, not permission to upgrade existing installations, install into other harnesses, fetch optional
+analysis models or upload media. Announce what is missing and continue without a separate setup confirmation;
+required host permissions still apply.
+
+1. Identify the active harness from the session and its supported skill discovery mechanism, not merely which
+   agent directories happen to exist. Check project, plugin and user scopes; a skill bundled in a plugin counts
+   as installed. Reuse a readable, loadable installation and record its actual revision.
+2. For missing skills, use the host's supported installer or the targeted skills CLI below. Choose user scope
+   for that harness, outside this repository and ose's managed venv. Use the default checkout directory below
+   unless the user configured another. If a shared canonical copy already exists, register/reuse it without
+   overwriting it. A conflicting name, broken link or modified checkout requires an explicit repair decision,
+   not a force install.
+3. Install only the skills needed by the selected route/stage: Bang Motion and Shotcraft for designed output;
+   Earshot when selected; HyperFrames and its CLI/registry/media skills before their respective operations.
+   Do not use `--all`, wildcard skills/agents, or install Earshot's `real-sound` workflow.
+4. Verify the installed files and referenced assets, rediscover the skill in the active harness and load it.
+   Use supported hot reload if needed. If the harness requires restarting, report that activation is pending;
+   do not equate successful file copying with a loaded skill.
+5. Install a missing runtime only when its operation is needed (Earshot CLI separately below; HyperFrames via
+   its official setup). Check readiness before editing. On network/permission/setup failure, report the failed
+   command and blocker; do not silently downgrade the result or repeatedly retry an unchanged failure.
+
+These are inspected upstream revisions for new installations, not a runtime-tested compatibility matrix or
+a lock of their transitive dependencies. Existing installations are not automatically moved to these pins:
+
+| Repository | Reviewed revision | Skill entrypoint |
+| --- | --- | --- |
+| `bangtutorial/bang-motion` | `c1aa65e921c970d858705fcb4a53a8294d1a4131` | `SKILL.md` |
+| `Vincentwei1021/video-shotcraft` | `6700db2ba80572ebc777b99d72049679fed9840c` | `SKILL.md` |
+| `Leonxlnx/earshot` | `4ac3d2ac2b151e1c23376f9ce7f3047a17050013` | `skills/earshot/SKILL.md` |
+
+Run only the clone command for each missing companion. If a checkout already exists, inspect its revision
+and local changes instead of overwriting it or silently pulling:
+
+```bash
+COMPANIONS="$HOME/.local/share/one-shot-editing-companions"
+mkdir -p "$COMPANIONS"
+git clone https://github.com/bangtutorial/bang-motion.git "$COMPANIONS/bang-motion" &&
+  git -C "$COMPANIONS/bang-motion" checkout --detach c1aa65e921c970d858705fcb4a53a8294d1a4131
+git clone https://github.com/Vincentwei1021/video-shotcraft.git "$COMPANIONS/video-shotcraft" &&
+  git -C "$COMPANIONS/video-shotcraft" checkout --detach 6700db2ba80572ebc777b99d72049679fed9840c
+# Optional:
+git clone https://github.com/Leonxlnx/earshot.git "$COMPANIONS/earshot" &&
+  git -C "$COMPANIONS/earshot" checkout --detach 4ac3d2ac2b151e1c23376f9ce7f3047a17050013
+```
+
+Verify each new checkout with `git -C <path> rev-parse HEAD` before registration. Use the host's supported skill
+installer, or the noninteractive skills CLI from the same shell. Set `HARNESS` to the detected agent's ID
+supported by the installed CLI (consult its help/agent list; do not guess). Run only missing entries:
+
+```bash
+npx --yes skills add "$COMPANIONS/bang-motion" -g --agent "${HARNESS:?Identify the current harness}" --skill bang-motion --yes
+npx --yes skills add "$COMPANIONS/video-shotcraft" -g --agent "${HARNESS:?Identify the current harness}" --skill video-shotcraft --yes
+# Only when the Earshot stage is selected:
+npx --yes skills add "$COMPANIONS/earshot/skills/earshot" -g --agent "${HARNESS:?Identify the current harness}" --skill earshot --yes
+```
+
+Preserve the skill's referenced files, not only `SKILL.md`. After installation,
+confirm that Shotcraft's `gallery/api/library.json`, selected `references/shots/` cards and `demos/` are
+accessible. If the installer omits these, keep the pinned checkout and record it as the recipe source.
+Resolve the loaded skill location from the host, never from the example destination above.
+Install HyperFrames using its own setup instructions, and record its actual version alongside companion
+revisions. Verify its required CLI/registry/media skills are available before their stages.
+
+For selected Earshot bank/kit operations, check the executable first. If missing, automatically install the
+CLI separately (Python >=3.10 and FFmpeg), then verify readiness:
+
+```bash
+uv tool install "earshot @ git+https://github.com/Leonxlnx/earshot.git@4ac3d2ac2b151e1c23376f9ce7f3047a17050013"
+earshot doctor
+earshot sfx list
+```
+
+Do not add Earshot to ose's `pyproject.toml` or use ose's venv: setup synchronizes that environment exactly.
+The bank is model-free, but package dependencies include Torch/Transformers; announce the dependency download
+during bootstrap. No MCP or cloud extras are needed for the initial CLI route. Missing analysis-model caches
+do not authorize downloads. Follow [earshot-sfx.md](earshot-sfx.md) for selected-take checks and audio review.
+Installing a Python package is not installing an agent skill, and loading a skill is not executing its tools.
+
+Keep source licenses/notices when adapting code; generated assets and references still need their own rights.
+Updates are deliberate: record the new revision, recheck recipe/CLI differences and rerun a representative
+pilot before adoption. Do not copy the whole upstream pipeline or auto-update at render time.
 
 ## Worth knowing / possible upgrades
 - [auto-editor](https://github.com/WyattBlue/auto-editor): silence and motion-based cutting (a quick alternative
@@ -30,8 +123,9 @@ Used by this skill, plus alternatives worth knowing when extending it.
   prompt and genre/mood models.
 - [open_clip](https://github.com/mlfoundations/open_clip): semantic B-roll search with text→image embeddings.
 - [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet): real-time speech enhancement.
-- [HyperFrames](https://github.com/heygen-com/hyperframes) and [Remotion](https://www.remotion.dev): designed,
-  programmatic video.
+- [Remotion](https://www.remotion.dev): implementation source for some Shotcraft demos, not the selected
+  renderer or an automatic upgrade. Adapt the motion grammar to HyperFrames under
+  [motion-direction.md](motion-direction.md).
 - Inspiration: [Hormozi-style captions](https://github.com/topics/auto-subtitles), OpusClip-style repurposing,
   and [clipsai](https://github.com/ClipsAI/clipsai) for long→short clipping.
 

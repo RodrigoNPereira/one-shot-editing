@@ -1,4 +1,6 @@
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,12 +45,48 @@ def test_marketplace_resolves_complete_plugin(catalog_path):
         "scripts/ose/__main__.py",
         "references/plan-schema.md",
         "references/footage-overlays.md",
+        "references/motion-direction.md",
+        "references/earshot-sfx.md",
         "assets/hooks.json",
         "assets/plan.schema.json",
         "pyproject.toml",
         "uv.lock",
     ):
         assert (skill_root / asset).is_file(), asset
+
+
+def test_design_guides_survive_standalone_copy(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    result = subprocess.run(
+        ["bash", str(ROOT / "install.sh"), "--copy", "--no-setup"],
+        env={**os.environ, "HOME": str(home)}, text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    skill = home / ".agents/skills/one-shot-editing"
+    for name in ("motion-direction.md", "earshot-sfx.md"):
+        guide = skill / "references" / name
+        assert guide.is_file()
+        for target in re.findall(r"\]\(([^)]+)\)", guide.read_text()):
+            if "://" not in target:
+                path = (guide.parent / target.split("#")[0]).resolve()
+                assert path.is_relative_to(skill)
+                assert path.is_file(), target
+
+
+def test_research_ignore_does_not_hide_skill_guides(tmp_path):
+    shutil.copyfile(ROOT / ".gitignore", tmp_path / ".gitignore")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    for path, expected in (
+        ("references/research.md", 0),
+        ("skills/one-shot-editing/references/motion-direction.md", 1),
+        ("skills/one-shot-editing/references/earshot-sfx.md", 1),
+    ):
+        result = subprocess.run(
+            ["git", "-c", "core.excludesFile=/dev/null", "check-ignore", "--no-index", "-q", path],
+            cwd=tmp_path, capture_output=True, text=True,
+        )
+        assert result.returncode == expected, result.stderr
 
 
 def test_client_metadata_stays_in_sync():
